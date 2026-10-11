@@ -27,7 +27,7 @@ app.add_middleware(
     allow_origins=[x.strip() for x in settings.cors_origins.split(",") if x.strip()],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", "X-Saathi-Signature", "X-Provider-Event-ID", "X-Correlation-ID"],
+    allow_headers=["Content-Type", "Authorization", "X-Saathi-Signature", "X-Saathi-API-Key", "X-Provider-Event-ID", "X-Correlation-ID"],
     expose_headers=["X-Correlation-ID"],
 )
 limiter = InMemoryRateLimiter()
@@ -109,8 +109,28 @@ def readiness() -> dict[str, object]:
             "speech": speech,
             "weather": True,
             "documents": bool(settings.sarvam_api_key),
+            "api_operator_auth": bool(settings.api_auth_token),
+            "telephony_stream_auth": bool(settings.telephony_stream_token),
         },
     }
+
+
+def _authorize_api_request(supplied_key: str | None) -> None:
+    if settings.demo_mode and settings.app_env.lower() != "production":
+        return
+    if not settings.api_auth_token:
+        raise HTTPException(status_code=503, detail="api_authentication_not_configured")
+    if not supplied_key or not compare_digest(supplied_key, settings.api_auth_token):
+        raise HTTPException(status_code=401, detail="api_authentication_required")
+
+
+def _authorize_telephony_stream(supplied_token: str | None) -> None:
+    if settings.demo_mode and settings.app_env.lower() != "production":
+        return
+    if not settings.telephony_stream_token:
+        raise HTTPException(status_code=503, detail="telephony_stream_auth_not_configured")
+    if not supplied_token or not compare_digest(supplied_token, settings.telephony_stream_token):
+        raise HTTPException(status_code=401, detail="telephony_stream_not_authorized")
 
 
 def _source(outcome):
@@ -162,7 +182,12 @@ def scheme_detail(scheme_id: str) -> dict[str, object]:
 
 
 @app.post("/api/v1/conversation", response_model=ConversationResponse)
-async def conversation(payload: ConversationRequest, request: Request) -> ConversationResponse:
+async def conversation(
+    payload: ConversationRequest,
+    request: Request,
+    x_saathi_api_key: str | None = Header(default=None),
+) -> ConversationResponse:
+    _authorize_api_request(x_saathi_api_key)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(key):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -198,7 +223,12 @@ async def conversation(payload: ConversationRequest, request: Request) -> Conver
 
 
 @app.post("/api/v1/agent", response_model=ConversationResponse)
-async def agent(payload: AgentRequest, request: Request) -> ConversationResponse:
+async def agent(
+    payload: AgentRequest,
+    request: Request,
+    x_saathi_api_key: str | None = Header(default=None),
+) -> ConversationResponse:
+    _authorize_api_request(x_saathi_api_key)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"agent:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -239,10 +269,12 @@ async def voice_turn(
     audio: UploadFile = File(...),
     language: str = Form("hi"),
     household_id: str | None = Form(None),
+    x_saathi_api_key: str | None = Header(default=None),
     latitude: float | None = Form(None),
     longitude: float | None = Form(None),
     location_label: str | None = Form(None),
 ) -> VoiceTurnResponse:
+    _authorize_api_request(x_saathi_api_key)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"voice:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -343,6 +375,14 @@ async def telephony_stream(websocket: WebSocket) -> None:
     streaming TTS, server VAD and cancellation-aware barge-in. Otherwise it
     retains the bounded-turn adapter as a safe fallback.
     """
+    supplied_token = websocket.query_params.get("token", "")
+    try:
+        _authorize_telephony_stream(supplied_token)
+    except HTTPException as exc:
+        code = 1013 if exc.status_code == 503 else 1008
+        await websocket.close(code=code, reason=str(exc.detail))
+        return
+
     if not settings.exotel_stream_url or not settings.sarvam_api_key:
         await websocket.close(code=1013, reason="telephony_provider_not_configured")
         return
