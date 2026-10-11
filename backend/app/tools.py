@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from .provenance import SourceRecord, ToolResult
@@ -20,6 +20,9 @@ class DemoWeatherTool:
                 "condition": "Partly cloudy",
                 "temperature_c": 28,
                 "rain_probability_pct": 20,
+                "tomorrow_date": (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat(),
+                "tomorrow_rain_probability_pct": 20,
+                "tomorrow_precipitation_mm": 0,
                 "latitude": latitude,
                 "longitude": longitude,
             },

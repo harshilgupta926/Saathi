@@ -48,6 +48,13 @@ def test_api_responses_include_baseline_security_headers():
     assert response.headers['permissions-policy'] == 'camera=(), microphone=(), geolocation=()'
 
 
+def test_api_responses_are_not_cached():
+    response = TestClient(app).post('/api/v1/agent', json={'message': 'नमस्ते', 'language': 'hi'})
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
+    assert response.headers['cross-origin-resource-policy'] == 'same-origin'
+
+
 
 def test_outbound_call_demo_mode_does_not_bypass_auth_in_production(monkeypatch):
     import app.main as main
