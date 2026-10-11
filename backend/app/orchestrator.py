@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from .config import get_settings
@@ -10,9 +10,10 @@ from .escalation import EscalationPolicy, EscalationReason
 from .http_tools import DataGovMandiTool, OpenMeteoWeatherTool
 from .provider_adapters import GeminiToolRouter
 from .intent import classify_intent, extract_farming_entities
-from .provenance import ToolResult
+from .provenance import SourceRecord, ToolResult
 from .schemas import Intent, LocationContext
 from .tools import DemoMandiTool, DemoWeatherTool, PMKisanSchemeTool
+from .scheme_catalog import get_scheme
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,37 @@ def _weather_reply(data: dict[str, object], message: str) -> str:
     if any(term in lowered for term in ("आज", "today", "aaj")):
         return f"उपलब्ध मौसम जानकारी के अनुसार वर्तमान तापमान {temperature}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है।"
     return f"उपलब्ध मौसम जानकारी के अनुसार तापमान {temperature}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है。"
+
+
+def _catalogue_scheme_response(scheme) -> tuple[str, ToolResult]:
+    eligibility = " ".join(scheme.eligibility_notes)
+    documents = ", ".join(scheme.required_documents)
+    reply = (
+        f"{scheme.name}: {scheme.summary} "
+        f"पात्रता: {eligibility} "
+        f"संभावित दस्तावेज़: {documents}. "
+        f"स्रोत {scheme.source_checked_on} को समीक्षा किया गया था। "
+        f"अंतिम पात्रता, राज्य/सीजन की शर्तें और समय-सीमा आधिकारिक पोर्टल पर जाँचें: "
+        f"{scheme.application_url}"
+    )
+    result = ToolResult(
+        ok=True,
+        data={
+            "scheme_id": scheme.scheme_id,
+            "name": scheme.name,
+            "eligibility_notes": list(scheme.eligibility_notes),
+            "required_documents": list(scheme.required_documents),
+            "application_url": scheme.application_url,
+            "source_checked_on": scheme.source_checked_on,
+        },
+        source=SourceRecord(
+            name=scheme.name,
+            url=scheme.source_url,
+            retrieved_at=datetime.now(timezone.utc),
+            freshness_note=f"Catalogue reviewed {scheme.source_checked_on}; verify current official rules.",
+        ),
+    )
+    return reply, result
 
 
 class ToolPolicy:
@@ -344,6 +376,24 @@ class Orchestrator:
                 confidence=0.55,
                 tool_name="get_mandi_price",
             )
+
+        if intent == "scheme":
+            lowered = message.casefold()
+            scheme_id = None
+            if any(term in lowered for term in ("pmfby", "fasal bima", "crop insurance", "फसल बीमा")):
+                scheme_id = "pmfby"
+            elif any(term in lowered for term in ("pm-kisan", "pm kisan", "किसान", "किसान योजना")):
+                scheme_id = "pm-kisan"
+            scheme = get_scheme(scheme_id) if scheme_id else None
+            if scheme is not None:
+                reply, result = _catalogue_scheme_response(scheme)
+                return self._outcome(
+                    intent="scheme",
+                    reply=reply,
+                    result=result,
+                    confidence=0.95,
+                    tool_name="get_pmkisan_info" if scheme_id == "pm-kisan" else "get_scheme_catalog",
+                )
 
         if intent == "scheme" and any(x in message.casefold() for x in ("किसान", "pm-kisan", "pm kisan", "किसान योजना")):
             result = await self.scheme.explain()
