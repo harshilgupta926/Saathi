@@ -18,6 +18,8 @@ class OpenMeteoWeatherTool:
             "longitude": longitude,
             "current": "temperature_2m,precipitation",
             "hourly": "precipitation_probability,temperature_2m",
+            "daily": "precipitation_probability_max,precipitation_sum",
+            "forecast_days": 2,
             "forecast_hours": 24,
             "timezone": "auto",
         }
@@ -33,6 +35,13 @@ class OpenMeteoWeatherTool:
             temperature = current.get("temperature_2m")
             precipitation = current.get("precipitation")
             rain_probability = max(probabilities or [0])
+            daily = payload.get("daily", {})
+            daily_dates = daily.get("time") or []
+            daily_probabilities = daily.get("precipitation_probability_max") or []
+            daily_precipitation = daily.get("precipitation_sum") or []
+            tomorrow_probability = daily_probabilities[1] if len(daily_probabilities) > 1 else None
+            tomorrow_precipitation = daily_precipitation[1] if len(daily_precipitation) > 1 else None
+            tomorrow_date = daily_dates[1] if len(daily_dates) > 1 else None
 
             if temperature is None or not probabilities:
                 raise ValueError("weather_payload_missing_required_fields")
@@ -46,6 +55,9 @@ class OpenMeteoWeatherTool:
                     "precipitation_mm": precipitation,
                     "rain_probability_pct": rain_probability,
                     "next_24h_rain_probability_max": rain_probability,
+                    "tomorrow_date": tomorrow_date,
+                    "tomorrow_rain_probability_pct": tomorrow_probability,
+                    "tomorrow_precipitation_mm": tomorrow_precipitation,
                 },
                 source=SourceRecord(
                     name="Open-Meteo",
@@ -146,10 +158,26 @@ class DataGovMandiTool:
                     score += 5
                 return score
 
-            scored_records = sorted(((score(record), record) for record in records), key=lambda item: item[0], reverse=True)
-            best_score, record = scored_records[0]
-            second_score = scored_records[1][0] if len(scored_records) > 1 else -1
-            # Never silently choose between nearly-equal markets. Ambiguity is safer than a plausible-looking price.
+            def arrival_date(record: dict) -> datetime:
+                value = record_field(record, "arrival_date", "Arrival_Date", "arrival date")
+                if not value:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                text = str(value).strip()
+                for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y"):
+                    try:
+                        return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        continue
+                return datetime.min.replace(tzinfo=timezone.utc)
+
+            # Prefer the strongest entity match, then the newest dated record.
+            # Never let upstream response ordering decide which market/date is shown.
+            scored_records = sorted(
+                ((score(record), arrival_date(record), record) for record in records),
+                key=lambda item: (item[0], item[1]),
+                reverse=True,
+            )
+            best_score, best_date, record = scored_records[0]
             if best_score < 7:
 
                 return ToolResult(
@@ -165,7 +193,11 @@ class DataGovMandiTool:
                     ),
                 )
 
-            if second_score >= 0 and best_score == second_score and requested_market:
+            tied_best = [
+                item for item in scored_records
+                if item[0] == best_score and item[1] == best_date
+            ]
+            if len(tied_best) > 1:
                 return ToolResult(
                     ok=False,
                     error_code="MANDI_AMBIGUOUS_MARKET",
@@ -175,7 +207,7 @@ class DataGovMandiTool:
                         name="Government OGD / AGMARKNET",
                         url=url,
                         retrieved_at=datetime.now(timezone.utc),
-                        freshness_note="Multiple returned records matched the requested market equally; no price was selected without a stronger date/record tie-break.",
+                        freshness_note="Multiple records tied on entity match and arrival date; no price was selected.",
                     ),
                 )
 

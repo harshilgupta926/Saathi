@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from .config import get_settings
 from .escalation import EscalationPolicy, EscalationReason
@@ -30,6 +32,21 @@ class AgentOutcome:
     escalation_reason: EscalationReason | None
     tool_name: str | None = None
     results: tuple[ToolResult, ...] = ()
+
+
+def _weather_reply(data: dict[str, object], message: str) -> str:
+    lowered = message.casefold()
+    if any(term in lowered for term in ("कल", "tomorrow", "tomorrow's")) and data.get("tomorrow_rain_probability_pct") is not None:
+        probability = data["tomorrow_rain_probability_pct"]
+        date = data.get("tomorrow_date") or "कल"
+        rainfall = data.get("tomorrow_precipitation_mm")
+        extra = f" और अनुमानित वर्षा {rainfall} mm" if rainfall is not None else ""
+        return f"उपलब्ध मौसम forecast के अनुसार {date} को बारिश की अधिकतम संभावना {probability}% है{extra}।"
+    probability = data.get("rain_probability_pct", data.get("next_24h_rain_probability_max", 0))
+    temperature = data.get("temperature_c", "उपलब्ध नहीं")
+    if any(term in lowered for term in ("आज", "today", "aaj")):
+        return f"उपलब्ध मौसम जानकारी के अनुसार वर्तमान तापमान {temperature}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है।"
+    return f"उपलब्ध मौसम जानकारी के अनुसार तापमान {temperature}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है。"
 
 
 class ToolPolicy:
@@ -129,10 +146,9 @@ class Orchestrator:
                     result = await self.weather.forecast(latitude=latitude, longitude=longitude)
                     if result.ok:
                         data = result.data
-                        probability = data.get("rain_probability_pct", data.get("next_24h_rain_probability_max", 0))
                         return self._outcome(
                             intent="farming",
-                            reply=f"उपलब्ध मौसम जानकारी के अनुसार तापमान {data['temperature_c']}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है।",
+                            reply=_weather_reply(data, message),
                             result=result,
                             confidence=0.9,
                             tool_name="get_weather",
@@ -181,6 +197,8 @@ class Orchestrator:
             # as "संभावना" accidentally match the mandi signal "भाव".
             wants_weather = any(contains_term(x) for x in ("मौसम", "बारिश", "weather", "rain"))
             wants_mandi = any(contains_term(x) for x in ("मंडी", "mandi", "भाव", "रेट", "price", "bhav"))
+            wants_tomorrow = any(x in lowered for x in ("कल", "tomorrow", "tomorrow's"))
+            wants_today = any(x in lowered for x in ("आज", "today", "aaj"))
             if wants_weather and wants_mandi:
                 location = context.location
                 if location is None:
@@ -226,13 +244,16 @@ class Orchestrator:
                     d = mandi_result.data
                     market = d.get("market") or entities.market or entities.district or entities.state
                     date = d.get("arrival_date") or "latest returned date"
-                    parts.append(f"सरकारी बाजार डेटा के अनुसार {market} में {d['commodity']} का मॉडल भाव ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।")
+                    today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+                    if wants_today and date != today:
+                        parts.append(f"सरकारी स्रोत में आज का रिकॉर्ड उपलब्ध नहीं मिला। सबसे हाल का सत्यापित {market} भाव {d['commodity']} के लिए ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।")
+                    else:
+                        parts.append(f"सरकारी बाजार डेटा के अनुसार {market} में {d['commodity']} का मॉडल भाव ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।")
                 else:
                     parts.append("सरकारी मंडी स्रोत से इस अनुरोध के लिए विश्वसनीय भाव नहीं मिला, इसलिए मैं भाव का अनुमान नहीं दूँगा।")
                 if weather_result.ok:
                     d = weather_result.data
-                    probability = d.get("rain_probability_pct", d.get("next_24h_rain_probability_max", 0))
-                    parts.append(f"उपलब्ध मौसम जानकारी के अनुसार तापमान {d['temperature_c']}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है।")
+                    parts.append(_weather_reply(d, message))
                 else:
                     parts.append("मौसम की जानकारी अभी उपलब्ध नहीं है, इसलिए मैं बारिश की संभावना का अनुमान नहीं दूँगा।")
                 return self._outcome(
@@ -256,10 +277,9 @@ class Orchestrator:
                 result = await self.weather.forecast(latitude=location.latitude, longitude=location.longitude)
                 if result.ok:
                     d = result.data
-                    probability = d.get("rain_probability_pct", d.get("next_24h_rain_probability_max", 0))
                     return self._outcome(
                         intent=intent,
-                        reply=f"उपलब्ध मौसम जानकारी के अनुसार तापमान {d['temperature_c']}°C है और अगले 24 घंटे में बारिश की अधिकतम संभावना {probability}% है।",
+                        reply=_weather_reply(d, message),
                         result=result,
                         tool_name="get_weather",
                     )
@@ -306,9 +326,14 @@ class Orchestrator:
                 d = result.data
                 market = d.get("market") or entities.market or entities.district or entities.state
                 date = d.get("arrival_date") or "latest returned date"
+                today = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+                if wants_today and date != today:
+                    reply = f"सरकारी स्रोत में आज का रिकॉर्ड उपलब्ध नहीं मिला। सबसे हाल का सत्यापित {market} भाव {d['commodity']} के लिए ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।"
+                else:
+                    reply = f"सरकारी बाजार डेटा के अनुसार {market} में {d['commodity']} का मॉडल भाव ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।"
                 return self._outcome(
                     intent=intent,
-                    reply=f"सरकारी बाजार डेटा के अनुसार {market} में {d['commodity']} का मॉडल भाव ₹{d['modal_price']} प्रति क्विंटल है (डेटा दिनांक {date})।",
+                    reply=reply,
                     result=result,
                     tool_name="get_mandi_price",
                 )
