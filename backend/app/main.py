@@ -17,6 +17,7 @@ from .voice import VoiceGateway
 from .voice_bridge import run_exotel_realtime_session, run_exotel_session
 from .webhook_events import InMemoryWebhookEventStore, derive_event_id, record_supabase_webhook_event
 from .supabase_store import record_conversation_metadata
+from .scheme_catalog import get_scheme, list_schemes
 
 
 settings = get_settings()
@@ -133,6 +134,31 @@ def _sources(outcome):
                 "freshness_note": result.source.freshness_note,
             })
     return items
+
+
+@app.get("/api/v1/schemes")
+def schemes() -> dict[str, object]:
+    """List informational scheme records with official sources and caveats."""
+    from dataclasses import asdict
+
+    return {
+        "schemes": [asdict(item) for item in list_schemes()],
+        "notice": (
+            "Informational only; eligibility, documents, deadlines and application "
+            "availability must be verified on the linked official portal."
+        ),
+    }
+
+
+@app.get("/api/v1/schemes/{scheme_id}")
+def scheme_detail(scheme_id: str) -> dict[str, object]:
+    """Return one scheme record, or a stable 404 for an unknown identifier."""
+    from dataclasses import asdict
+
+    item = get_scheme(scheme_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="scheme_not_found")
+    return asdict(item)
 
 
 @app.post("/api/v1/conversation", response_model=ConversationResponse)

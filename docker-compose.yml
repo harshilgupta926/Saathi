@@ -1,0 +1,19 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      APP_ENV: development
+      CORS_ORIGINS: http://localhost:3000
+      DEMO_MODE: "true"
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
