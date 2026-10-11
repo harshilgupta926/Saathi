@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .config import get_settings
@@ -168,8 +169,18 @@ class Orchestrator:
 
         if intent == "farming":
             lowered = message.casefold()
-            wants_weather = any(x in lowered for x in ("मौसम", "बारिश", "weather", "rain"))
-            wants_mandi = any(x in lowered for x in ("मंडी", "mandi", "भाव", "रेट", "price", "bhav"))
+
+            def contains_term(term: str) -> bool:
+                return re.search(
+                    rf"(?<![\w\u0900-\u097F]){re.escape(term)}(?![\w\u0900-\u097F])",
+                    lowered,
+                    flags=re.UNICODE,
+                ) is not None
+
+            # Use term boundaries here. Plain substring matching makes words such
+            # as "संभावना" accidentally match the mandi signal "भाव".
+            wants_weather = any(contains_term(x) for x in ("मौसम", "बारिश", "weather", "rain"))
+            wants_mandi = any(contains_term(x) for x in ("मंडी", "mandi", "भाव", "रेट", "price", "bhav"))
             if wants_weather and wants_mandi:
                 location = context.location
                 if location is None:

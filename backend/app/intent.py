@@ -7,7 +7,7 @@ _RULES: tuple[tuple[Intent, tuple[str, ...]], ...] = (
     ("human", ("human", "volunteer", "person", "इंसान", "व्यक्ति", "आदमी", "अधिकारी", "मानव")),
     ("task", ("remind", "reminder", "callback", "याद", "रिमाइंड", "बाद में")),
     ("scheme", ("scholarship", "scheme", "yojana", "pension", "subsidy", "eligibility", "लाभ", "छात्रवृत्ति", "योजना", "पेंशन", "पात्र")),
-    ("farming", ("mandi", "wheat", "weather", "crop", "farmer", "गेहूं", "मंडी", "मौसम", "बारिश", "फसल", "किसान")),
+    ("farming", ("mandi", "wheat", "weather", "rain", "crop", "farmer", "गेहूं", "मंडी", "मौसम", "बारिश", "बरसेगा", "बरसेगी", "बरसै", "फसल", "किसान")),
     ("document", ("document", "notice", "certificate", "letter", "दस्तावेज", "दस्तावेज़", "कागज", "नोटिस", "प्रमाण पत्र", "चिट्ठी")),
 )
 

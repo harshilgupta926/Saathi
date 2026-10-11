@@ -2,21 +2,31 @@ services:
   - type: web
     name: saathi-api
     runtime: docker
-    rootDir: backend
+    # Use the repository-root Dockerfile. It copies backend dependencies and code.
     healthCheckPath: /health/ready
     envVars:
+      - key: APP_ENV
+        value: production
       - key: DEMO_MODE
-        value: "false"
+        value: "true"
       - key: CORS_ORIGINS
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
       - key: SARVAM_API_KEY
         sync: false
       - key: MANDI_API_KEY
         sync: false
       - key: MANDI_RESOURCE_ID
-        sync: false
+        value: 9ef84268-d588-465a-a308-a864a43d0070
       - key: EXOTEL_API_KEY
         sync: false
       - key: EXOTEL_API_TOKEN
@@ -31,3 +41,7 @@ services:
         sync: false
       - key: CALL_API_TOKEN
         sync: false
+      - key: TELEPHONY_STREAM_TOKEN
+        sync: false
+      - key: SARVAM_REALTIME_STT_ENABLED
+        value: "false"

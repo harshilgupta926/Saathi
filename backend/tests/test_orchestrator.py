@@ -129,3 +129,16 @@ def test_combined_provider_failure_does_not_invent_missing_value(monkeypatch):
     ))
     assert "मौसम की जानकारी अभी उपलब्ध नहीं है" in outcome.reply
     assert outcome.escalated is True
+
+def test_weather_phrase_with_sambhavana_does_not_trigger_mandi():
+    outcome = asyncio.run(Orchestrator().handle(
+        "अगले 24 घंटे में बारिश की संभावना कितनी है?",
+        AgentContext(
+            household_id="h1",
+            location=LocationContext(latitude=28.9931, longitude=77.0151, label="Sonipat"),
+        ),
+    ))
+    assert outcome.tool_name == "get_weather"
+    assert outcome.result is not None and outcome.result.ok
+    assert outcome.result.data["rain_probability_pct"] == 20
+

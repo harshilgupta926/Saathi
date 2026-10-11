@@ -44,6 +44,16 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm run build
 
+  streamlit-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install -r streamlit_app/requirements.txt
+      - run: python -m py_compile streamlit_app/app.py
+
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
@@ -62,3 +72,24 @@ jobs:
       # Runtime dependencies are audited strictly; the dev-tool advisory remains visible in npm install output.
       - working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build production API image (retry transient registry failures)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker build --pull --file Dockerfile --tag saathi-api:ci .; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Docker build failed on attempt $attempt; waiting before retry."
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "Docker image build failed after 3 attempts."
+          exit 1
+      - name: Verify container entrypoint and image metadata
+        run: docker image inspect saathi-api:ci --format '{{.Config.Entrypoint}} {{.Config.Cmd}}'

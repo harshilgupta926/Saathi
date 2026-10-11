@@ -16,7 +16,7 @@ The non-Supabase implementation is now consolidated into a production-shaped pro
 - provider-gated Sarvam browser STT/TTS
 - executable Exotel AgentStream WebSocket endpoint with bounded-turn Sarvam phone speech adapter plus optional Sarvam Realtime STT/streaming TTS transport
 - telephony HMAC/idempotency contracts
-- rate limiting, correlation IDs and capability-aware readiness
+- rate limiting, correlation IDs, baseline API security headers and capability-aware readiness
 - current Sarvam Document AI adapter for Digitise/Extract jobs
 - consent and human-escalation UI
 - automated backend/frontend CI and dependency audits
@@ -24,6 +24,12 @@ The non-Supabase implementation is now consolidated into a production-shaped pro
 The operator demo intentionally uses labelled simulated data when live credentials are absent. Persistent Supabase memory, durable webhook storage, low-latency realtime phone transport, human case persistence and authorized government application submission remain separate integration/deployment gates.
 
 **Operator demo:** run the frontend and open `/dashboard`.
+
+**Streamlit demo:** for the standalone judge-friendly demo, deploy `streamlit_app/app.py` to Streamlit Community Cloud. See `docs/STREAMLIT_DEPLOY.md` for the exact setup and supported secrets.
+
+**Render API:** the root `Dockerfile` deploys the current FastAPI backend as a Docker web service. Follow `docs/RENDER_DEPLOY.md`; leave Render's Root Directory blank and set Dockerfile Path to `./Dockerfile`.
+
+**Vercel + Supabase connection:** deploy the Next.js app with `frontend/` as the Vercel Root Directory, set `BACKEND_API_URL` to the public FastAPI origin, and configure the Supabase server-side secret on the API service. Follow `docs/VERCEL_SUPABASE_CONNECT.md`.
 
 ## Product direction
 
@@ -68,7 +74,7 @@ Never commit `.env` files or secrets. Start from the provided `.env.example` fil
 
 ## Release roadmap
 
-See `docs/BUILD_PLAN.md` for the current gates. The immediate next milestone is a measured, provider-backed voice vertical slice; Supabase persistence comes after the non-Supabase runtime is accepted.
+See `docs/BUILD_PLAN.md` for the current gates and `docs/DEPLOYMENT_RUNBOOK.md` for staged Vercel/Render deployment, smoke tests, provider configuration, and rollback. The repository is deployable as a demo, but it is not yet honest to call every capability production-ready: live provider tests, real phone-call proof, authenticated household persistence, durable webhooks, and shared rate limiting remain release gates.
 
 ## Hackathon
 

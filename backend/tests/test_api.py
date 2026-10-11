@@ -37,3 +37,27 @@ def test_voice_response_schema_keeps_telemetry_fields():
     payload=VoiceTurnResponse(status='ok',tool_name='get_weather',latency_ms=12.5)
     assert payload.tool_name == 'get_weather'
     assert payload.latency_ms == 12.5
+
+
+
+def test_api_responses_include_baseline_security_headers():
+    response = TestClient(app).get('/health/live')
+    assert response.headers['x-content-type-options'] == 'nosniff'
+    assert response.headers['x-frame-options'] == 'DENY'
+    assert response.headers['referrer-policy'] == 'no-referrer'
+    assert response.headers['permissions-policy'] == 'camera=(), microphone=(), geolocation=()'
+
+
+
+def test_outbound_call_demo_mode_does_not_bypass_auth_in_production(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    monkeypatch.setattr(main.settings, "call_api_token", None)
+    response = TestClient(app).post(
+        "/api/v1/calls",
+        json={"to": "+911234567890", "callback_url": "https://example.test/callback", "consent": True},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "call_api_unauthorized"

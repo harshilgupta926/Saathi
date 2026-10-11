@@ -1,6 +1,7 @@
 import asyncio
 
-from app.orchestrator import AgentContext, Orchestrator\nfrom app.schemas import LocationContext
+from app.orchestrator import AgentContext, Orchestrator
+from app.schemas import LocationContext
 
 
 class FakeCall:
