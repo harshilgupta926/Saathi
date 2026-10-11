@@ -5,16 +5,36 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowLeft, ArrowRight, ArrowUpRight, Bot, CheckCircle2, ChevronDown,
+  ArrowLeft, ArrowUpRight, Bot, CheckCircle2, ChevronDown,
   CloudRain, Languages, MapPin, Mic2, PhoneCall,
   ShieldCheck, Sparkles, UserRound, Volume2, Wheat, X, Zap, type LucideIcon
 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === "production" ? "/backend" : "http://localhost:8000");
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DEMO_LOCATION = { latitude: 28.9931, longitude: 77.0151, label: "Sonipat district · demo context" };
 
 type Source = { name: string; url: string; retrieved_at: string; freshness_note?: string | null };
 type Evidence = { name: string; url: string; retrieved_at: string; freshness_note?: string | null };
+type ReadyCapabilities = { core_agent?: boolean; telephony?: boolean; telephony_realtime?: boolean; reasoning?: boolean; mandi?: boolean; speech?: boolean; weather?: boolean; documents?: boolean };
+
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+type BrowserSpeechWindow = Window & {
+  SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+  webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+};
+
 type Result = {
   reply: string;
   intent: string;
@@ -52,11 +72,13 @@ export default function Dashboard() {
   const [voiceState, setVoiceState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [memoryConsent, setMemoryConsent] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
   const [apiReady, setApiReady] = useState(false);
-  const [providerContracts, setProviderContracts] = useState<Record<string, boolean>>({});
+  const [capabilities, setCapabilities] = useState<ReadyCapabilities>({});
+  const [demoMode, setDemoMode] = useState(true);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -66,7 +88,8 @@ export default function Dashboard() {
         const body = await response.json();
         setApiOnline(true);
         setApiReady(body.status === "ready");
-        setProviderContracts(body.provider_contracts ?? {});
+        setCapabilities(body.provider_contracts || {});
+        setDemoMode(body.demo_mode !== false);
       })
       .catch(() => {
         setApiOnline(false);
@@ -101,6 +124,45 @@ export default function Dashboard() {
 
   const toggleVoice = async () => {
     setVoiceError(null);
+
+    // Demo-mode fallback: use the browser's native speech stack when Sarvam
+    // is not configured. This is explicitly local/browser voice, not provider STT/TTS.
+    if (!capabilities.speech) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        return;
+      }
+      const SpeechRecognition = (window as BrowserSpeechWindow).SpeechRecognition || (window as BrowserSpeechWindow).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        setVoiceError("Live speech is not configured, and this browser does not provide local speech recognition.");
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.lang = "hi-IN";
+      recognition.interimResults = false;
+      recognition.continuous = false;
+      recognition.onresult = (event) => {
+        const transcript = event.results[0]?.[0]?.transcript?.trim();
+        if (transcript) {
+          setMessage(transcript);
+          void runAgent(transcript);
+        }
+      };
+      recognition.onerror = (event) => {
+        recognitionRef.current = null;
+        setVoiceState("idle");
+        setVoiceError(event.error ? `Browser speech error: ${event.error}` : "Browser speech recognition failed.");
+      };
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        setVoiceState("idle");
+      };
+      recognitionRef.current = recognition;
+      setVoiceState("listening");
+      recognition.start();
+      return;
+    }
+
     if (recorderRef.current) {
       recorderRef.current.stop();
       setVoiceState("thinking");
@@ -168,18 +230,28 @@ export default function Dashboard() {
     }
   };
 
-  const run = async () => {
+  const runAgent = async (requestMessage = message) => {
     setLoading(true);
     setVoiceState("thinking");
     try {
       const response = await fetch(`${API}/api/v1/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, language: "hi", household_id: "demo-household", location: DEMO_LOCATION }),
+        body: JSON.stringify({ message: requestMessage, language: "hi", household_id: "demo-household", location: DEMO_LOCATION }),
       });
       if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
-      setResult(await response.json());
-      setVoiceState("idle");
+      const body = await response.json();
+      setResult(body);
+      if (!capabilities.speech && typeof window !== "undefined" && "speechSynthesis" in window && body.reply) {
+        setVoiceState("speaking");
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(body.reply);
+        utterance.lang = "hi-IN";
+        utterance.onend = () => setVoiceState("idle");
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setVoiceState("idle");
+      }
     } catch {
       setResult({
         reply: "Backend se connection nahi ho paaya. Saathi live result invent nahi karega — provider status check karein.",
@@ -192,14 +264,16 @@ export default function Dashboard() {
     }
   };
 
+  const run = () => runAgent();
+
   return (
     <main className="command-shell">
       <div className="command-wrap">
         <header className="command-header">
           <div>
-            <div className="eyebrow"><span className="eyebrow-line" /> SAATHI WORKSPACE</div>
-            <h1>Ask Saathi. <em>See the answer.</em></h1>
-            <p>Speak or type a real question, inspect the specialist source behind the response, and see where Saathi will stop and ask for help.</p>
+            <div className="eyebrow"><span className="eyebrow-line" /> SAATHI</div>
+            <h1>Ask Saathi. <em>Get grounded help.</em></h1>
+            <p>Use voice or text to ask a real question. Saathi interprets it, checks the right specialist source, and shows the evidence behind the response.</p>
           </div>
           <div className="header-badges">
             <span><Zap size={13} /> {apiOnline ? (apiReady ? "API ready" : "API online") : "API offline"}</span>
@@ -211,32 +285,32 @@ export default function Dashboard() {
         <section className="status-grid">
           <article className="metric-card accent">
             <div className="metric-icon"><PhoneCall size={18} /></div>
-            <div><small>VOICE CHANNEL</small><strong>Browser voice</strong><p>Microphone → speech → response → audio</p></div>
+            <div><small>VOICE CHANNEL</small><strong>Missed call → Saathi</strong><p>Provider-gated · Exotel adapter ready</p></div>
           </article>
           <article className="metric-card">
             <div className="metric-icon"><Bot size={18} /></div>
-            <div><small>ORCHESTRATOR</small><strong>Specialist tools</strong><p>Intent decides which declared capability can run</p></div>
+            <div><small>ORCHESTRATOR</small><strong>Specialist routing</strong><p>Deterministic intent + tool boundary</p></div>
           </article>
           <article className="metric-card">
             <div className="metric-icon"><Sparkles size={18} /></div>
-            <div><small>VOICE STATE</small><strong>{voiceState === "idle" ? "Ready" : voiceState === "listening" ? "Listening" : voiceState === "thinking" ? "Thinking" : "Speaking"}</strong><p>Current browser interaction</p></div>
+            <div><small>VOICE STATE</small><strong>{voiceState === "idle" ? "Ready" : voiceState === "listening" ? "Listening" : voiceState === "thinking" ? "Thinking" : "Speaking"}</strong><p>Live browser voice state</p></div>
           </article>
         </section>
 
         <section className="workspace">
           <div className="caller-panel">
             <div className="panel-head">
-              <div><span className="panel-kicker">YOUR REQUEST</span><h2>What would you ask Saathi?</h2></div>
-              <span className="demo-tag"><i /> PROTOTYPE</span>
+              <div><span className="panel-kicker">ASK SAATHI</span><h2>What would you like to know?</h2></div>
+              <span className="demo-tag"><i /> BROWSER PROTOTYPE</span>
             </div>
 
             <div className="caller-context">
               <div className={`caller-avatar ${voiceState !== "idle" ? "pulse" : ""}`}><Mic2 size={23} /></div>
-              <div><strong>You</strong><span>Hindi / Hinglish · Sonipat context</span></div>
+              <div><strong>Unknown caller</strong><span>Hindi · Sonipat district</span></div>
               <span className={`call-state ${voiceState !== "idle" ? "busy" : ""}`}>{voiceState.toUpperCase()}</span>
             </div>
 
-            <div className="scenario-tabs" role="tablist" aria-label="Demo scenarios">
+            <div className="scenario-tabs" role="tablist" aria-label="Question types">
               {scenarios.map(({ id, label, icon: Icon }) => (
                 <button type="button" key={id} role="tab" aria-selected={scenario === id} className={scenario === id ? "selected" : ""} onClick={() => selectScenario(id)}>
                   <Icon size={14} />{label}
@@ -250,7 +324,7 @@ export default function Dashboard() {
               <button type="button" className={`voice-button ${voiceState === "listening" ? "active" : ""}`} onClick={toggleVoice} aria-label="Toggle microphone" disabled={loading || voiceState === "speaking"}>
                 <Mic2 size={18} /> {voiceState === "listening" ? "Stop recording" : "Start voice"}
               </button>
-              <span><Volume2 size={13} /> Use your microphone when the speech provider is configured.</span>
+              <span><Volume2 size={13} /> {capabilities.speech ? "Real mic → provider STT → agent → provider TTS" : "Browser voice preview · provider STT/TTS not configured"}</span>
             </div>
 
             {voiceError && <div className="voice-error" role="alert" aria-live="assertive">{voiceError}</div>}
@@ -294,14 +368,14 @@ export default function Dashboard() {
         <section className="context-grid">
           <article className="context-card">
             <div className="context-title"><div><span className="panel-kicker">FIELD CONTEXT</span><h3>Where should Saathi look?</h3></div><MapPin size={18} /></div>
-            <div className="location-row"><div className="map-placeholder"><MapPin size={23} /><span>FIELD CONTEXT</span></div><div><strong>Sonipat district</strong><p>Context is passed to the API. Browser GPS is not used by this prototype.</p><span className="source-status"><i /> Location source · contextual</span></div></div>
+            <div className="location-row"><div className="map-placeholder"><MapPin size={23} /><span>FIELD CONTEXT</span></div><div><strong>Sonipat district</strong><p>Explicit demo context is passed to the API. No browser GPS is claimed.</p><span className="source-status"><i /> Location source · contextual</span></div></div>
           </article>
 
           <article className="context-card">
             <div className="context-title"><div><span className="panel-kicker">SOURCE HEALTH</span><h3>What can we trust?</h3></div><CheckCircle2 size={18} /></div>
             <div className="health-list">
-              <div><span><Wheat size={14} /> Mandi tool</span><b className={providerContracts.mandi ? "live-badge" : "demo-badge"}>{providerContracts.mandi ? "LIVE / configured" : "DEMO / not configured"}</b></div>
-              <div><span><CloudRain size={14} /> Weather tool</span><b className={providerContracts.weather ? "live-badge" : "demo-badge"}>{providerContracts.weather ? "Open-Meteo adapter" : "Unavailable"}</b></div>
+              <div><span><Wheat size={14} /> Mandi tool</span><b className={capabilities.mandi ? "live-badge" : "demo-badge"}>{demoMode ? "DEMO MODE" : capabilities.mandi ? "LIVE OGD" : "NOT CONFIGURED"}</b></div>
+              <div><span><CloudRain size={14} /> Weather tool</span><b className="live-badge">Open-Meteo adapter</b></div>
               <div><span><ShieldCheck size={14} /> Scheme rules</span><b className="live-badge">Deterministic</b></div>
             </div>
           </article>
@@ -309,15 +383,15 @@ export default function Dashboard() {
 
         <section className="consent-card" aria-labelledby="consent-title">
           <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD MEMORY</span><h3 id="consent-title">Remember only with permission.</h3></div><ShieldCheck size={18} /></div>
-          <p className="consent-intro">Household memory is intentionally not active in this prototype. This control makes the boundary explicit rather than pretending persistence exists.</p>
-          <div className="consent-options single">
+          <p className="consent-intro">Saathi separates useful continuity from silent surveillance. Household memory remains a prototype-only capability until server-side consent persistence is enabled.</p>
+          <div className="consent-options">
             <button type="button" className={`consent-option ${memoryConsent ? "on" : ""}`} aria-pressed={memoryConsent} onClick={() => setMemoryConsent((value) => !value)}>
               <span className="toggle">{memoryConsent ? <CheckCircle2 size={14} /> : <X size={14} />}</span>
               <div><strong>Household memory</strong><small>{memoryConsent ? "Consented for this demo household" : "Not enabled"}</small></div>
               <ChevronDown size={14} />
             </button>
           </div>
-          <div className="consent-note"><ShieldCheck size={14} /> In production, consent, opt-out, quiet hours and deletion must be persisted server-side.</div>
+          <div className="consent-note"><ShieldCheck size={14} /> Household memory is intentionally not active in this prototype. Consent toggles are demo-only and do not persist data. In production, consent, opt-out, quiet hours and deletion must be persisted server-side.</div>
         </section>
 
         <section className="fallback-card" aria-labelledby="fallback-title">
@@ -333,7 +407,7 @@ export default function Dashboard() {
         </section>
 
         <footer className="command-footer" aria-label="Saathi footer">
-          <span>SAATHI · VOICE-FIRST ACCESS</span><span>Working prototype · 2026</span>
+          <span>SAATHI · VOICE-FIRST ACCESS</span><span>Product prototype · 2026</span>
           <Link href="/"><ArrowLeft size={14} /> Back to product</Link>
         </footer>
       </div>
