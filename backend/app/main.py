@@ -340,7 +340,8 @@ async def place_outbound_call(
 ) -> dict[str, object]:
     if not payload.consent:
         raise HTTPException(status_code=400, detail="explicit_outbound_call_consent_required")
-    if not payload.to.replace("+", "").isdigit():
+    digits = payload.to[1:] if payload.to.startswith("+") else payload.to
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
         raise HTTPException(status_code=422, detail="invalid_phone_number")
     if settings.demo_mode and settings.app_env.lower() != "production":
         emit_event("call.demo", channel="exotel", realtime=payload.realtime_voice_ai)
