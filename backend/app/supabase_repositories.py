@@ -240,7 +240,7 @@ class SupabaseCallRepository(_SupabaseRepository):
             {
                 "call_id": internal_call_id,
                 "household_id": household_uuid,
-                "phone_number": phone_number[:20],
+                "phone_number": phone_number,
                 "direction": "outbound",
                 "status": "connecting",
                 "provider": provider[:80],
