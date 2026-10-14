@@ -1,13 +1,13 @@
 name: Saathi CI
 
 concurrency:
-  group: saathi-${{ github.workflow }}-${{ github.ref }}
+  group: saathi-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 on:
   push:
     branches:
-      - "**"
+      - main
   pull_request:
 
 permissions:
