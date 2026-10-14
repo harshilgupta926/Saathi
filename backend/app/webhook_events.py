@@ -42,11 +42,11 @@ async def record_supabase_webhook_event(
     event_type: str | None,
     timeout_seconds: float = 3.0,
 ) -> bool:
-    """Atomically claim an event using the table's unique event_id constraint.
+    """Atomically claim an event and write its call-event ledger row.
 
-    Returns True for a duplicate, False for a newly claimed event. Fails closed
-    on network/configuration errors; callers must not acknowledge an event if
-    durable idempotency could not be established.
+    Returns True for a duplicate, False for a newly claimed event. The database
+    function commits both rows in one transaction. Errors fail closed; callers
+    must not acknowledge an event if durable idempotency could not be established.
     """
     if not base_url.strip() or not secret_key.strip() or not event_id.strip():
         raise ValueError("durable_webhook_configuration_required")
@@ -54,21 +54,23 @@ async def record_supabase_webhook_event(
         "apikey": secret_key,
         "Authorization": f"Bearer {secret_key}",
         "Content-Type": "application/json",
-        "Prefer": "return=minimal",
     }
     payload = {
-        "event_id": event_id[:200],
-        "event_type": event_type[:120] if event_type else None,
-        "processing_status": "received",
+        "p_event_id": event_id[:200],
+        "p_event_type": event_type[:120] if event_type else None,
     }
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(
-            f"{base_url.rstrip('/')}/rest/v1/saathi_telephony_webhook_events",
+            f"{base_url.rstrip('/')}/rest/v1/rpc/saathi_record_webhook_event",
             headers=headers,
             json=payload,
         )
-    if response.status_code == 409:
-        return True
     if not response.is_success:
         raise RuntimeError(f"durable_webhook_store_http_{response.status_code}")
-    return False
+    try:
+        duplicate = response.json()
+    except ValueError as exc:
+        raise RuntimeError("durable_webhook_store_invalid_response") from exc
+    if not isinstance(duplicate, bool):
+        raise RuntimeError("durable_webhook_store_invalid_response")
+    return duplicate
