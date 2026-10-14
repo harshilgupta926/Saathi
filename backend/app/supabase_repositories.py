@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 
@@ -176,7 +176,7 @@ class SupabaseTaskRepository(_SupabaseRepository):
 
     async def create(self, task: Task) -> Task:
         household_uuid = self._uuid(task.household_id)
-        idempotency_key = str(uuid4())
+        idempotency_key = task.idempotency_key
         payload = {
             "household_id": household_uuid,
             "title": task.title,
@@ -185,7 +185,15 @@ class SupabaseTaskRepository(_SupabaseRepository):
             "scheduled_callback": task.scheduled_callback.isoformat() if task.scheduled_callback else None,
             "idempotency_key": idempotency_key,
         }
-        rows = await self._request("POST", "saathi_pending_tasks", payload)
+        try:
+            rows = await self._request("POST", "saathi_pending_tasks", payload)
+        except SupabaseRepositoryError as exc:
+            if "http_409" not in str(exc):
+                raise
+            rows = await self._request(
+                "GET",
+                f"saathi_pending_tasks?idempotency_key=eq.{idempotency_key}&select=id,household_id,title,status,missing_requirements,scheduled_callback",
+            )
         if not rows:
             raise SupabaseRepositoryError("task_create_failed")
         return self._to_task(rows[0])
