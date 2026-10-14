@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import httpx
@@ -99,23 +99,36 @@ class SupabaseConsentRepository(_SupabaseRepository):
         granted_column, recorded_column, revoked_column = self._columns[consent_type]
         rows = await self._request(
             "GET",
-            f"saathi_households?id=eq.{household_uuid}&select=id,{granted_column},{recorded_column},{revoked_column},created_at",
+            f"saathi_households?id=eq.{household_uuid}&select=id,{granted_column},{recorded_column},{revoked_column}",
         )
         if not rows:
             return None
         row = rows[0]
+        consent_at_value = row.get(recorded_column)
+        revoked_at_value = row.get(revoked_column)
+        consent_at = (
+            datetime.fromisoformat(str(consent_at_value).replace("Z", "+00:00"))
+            if consent_at_value
+            else None
+        )
+        revoked_at = (
+            datetime.fromisoformat(str(revoked_at_value).replace("Z", "+00:00"))
+            if revoked_at_value
+            else None
+        )
         granted = bool(row.get(granted_column, False))
-        recorded_value = row.get(recorded_column) or row.get(revoked_column)
-        if not recorded_value:
+        if granted and revoked_at and consent_at and revoked_at >= consent_at:
+            granted = False
+        effective_time = consent_at if granted else (revoked_at or consent_at)
+        if effective_time is None:
             if granted:
                 raise SupabaseRepositoryError("consent_timestamp_missing")
             return None
-        recorded_at = datetime.fromisoformat(str(recorded_value).replace("Z", "+00:00"))
         return Consent(
             household_id=household_uuid,
             consent_type=consent_type,
             granted=granted,
-            recorded_at=recorded_at,
+            recorded_at=effective_time,
         )
 
     async def save(self, consent: Consent) -> Consent:
@@ -125,7 +138,7 @@ class SupabaseConsentRepository(_SupabaseRepository):
         granted_column, recorded_column, revoked_column = self._columns[consent.consent_type]
         payload: dict[str, object] = {
             granted_column: consent.granted,
-            "updated_at": datetime.now(consent.recorded_at.tzinfo).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         if consent.granted:
             payload[recorded_column] = consent.recorded_at.isoformat()
@@ -191,7 +204,7 @@ class SupabaseTaskRepository(_SupabaseRepository):
         rows = await self._request(
             "PATCH",
             f"saathi_pending_tasks?id=eq.{task_uuid}&household_id=eq.{household_uuid}&select=id,household_id,title,status,missing_requirements,scheduled_callback",
-            {"status": status.value, "updated_at": datetime.now().astimezone().isoformat()},
+            {"status": status.value, "updated_at": datetime.now(timezone.utc).isoformat()},
         )
         if not rows:
             raise KeyError("task_not_found")
