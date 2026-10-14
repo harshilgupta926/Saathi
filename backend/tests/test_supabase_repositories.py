@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from uuid import UUID
 
 import pytest
 
@@ -75,6 +74,60 @@ def test_consent_repository_saves_memory_consent_with_server_key(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer server-test-key"
     assert captured["payload"]["memory_consent"] is True
     assert captured["payload"]["memory_consent_revoked_at"] is None
+
+
+def test_consent_repository_treats_later_revocation_as_denial(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    fake_client(
+        monkeypatch,
+        lambda *args: Response([{
+            "id": household_id,
+            "memory_consent": True,
+            "memory_consent_at": "2026-10-15T10:00:00Z",
+            "memory_consent_revoked_at": "2026-10-15T10:05:00Z",
+        }]),
+    )
+
+    consent = asyncio.run(SupabaseConsentRepository().get(
+        household_id=household_id,
+        consent_type=ConsentType.MEMORY,
+    ))
+    assert consent is not None
+    assert consent.granted is False
+    assert consent.recorded_at == datetime(2026, 10, 15, 10, 5, tzinfo=timezone.utc)
+
+
+def test_task_repository_creates_task_and_keeps_database_id(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    task_id = "22222222-2222-4222-8222-222222222222"
+    captured = {}
+
+    def respond(method, url, headers, payload):
+        captured.update(method=method, url=url, headers=headers, payload=payload)
+        return Response([{
+            "id": task_id,
+            "household_id": household_id,
+            "title": "Call back",
+            "status": "pending",
+            "missing_requirements": ["income certificate"],
+            "scheduled_callback": None,
+        }], status_code=201)
+
+    fake_client(monkeypatch, respond)
+    task = asyncio.run(SupabaseTaskRepository().create(Task(
+        household_id=household_id,
+        title="Call back",
+        missing_items=["income certificate"],
+    )))
+
+    assert task.task_id == task_id
+    assert task.status == TaskStatus.PENDING
+    assert captured["method"] == "POST"
+    assert captured["url"].endswith("/rest/v1/saathi_pending_tasks")
+    assert captured["payload"]["household_id"] == household_id
+    assert captured["payload"]["idempotency_key"]
 
 
 def test_task_repository_scopes_updates_to_household(monkeypatch):
