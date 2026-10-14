@@ -63,7 +63,7 @@ async def record_supabase_webhook_event(
     }
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(
-            f"{base_url.rstrip('/')}/rest/v1/telephony_webhook_events",
+            f"{base_url.rstrip('/')}/rest/v1/saathi_telephony_webhook_events",
             headers=headers,
             json=payload,
         )
