@@ -6,6 +6,7 @@ import pytest
 
 from app.domain import Consent, ConsentType, Task, TaskStatus
 from app.supabase_repositories import (
+    SupabaseCallRepository,
     SupabaseConsentRepository,
     SupabaseRepositoryError,
     SupabaseTaskRepository,
@@ -48,6 +49,32 @@ def configure(monkeypatch):
             supabase_secret_key="server-test-key",
         ),
     )
+
+
+def test_call_repository_persists_record_before_provider_acceptance(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    internal_call_id = "33333333-3333-4333-8333-333333333333"
+    captured = {}
+
+    def respond(method, url, headers, payload):
+        captured.update(method=method, url=url, headers=headers, payload=payload)
+        return Response([{"id": internal_call_id, "call_id": internal_call_id}], status_code=201)
+
+    fake_client(monkeypatch, respond)
+    call_id = asyncio.run(SupabaseCallRepository().create(
+        household_id=household_id,
+        phone_number="+919999999999",
+        provider="exotel",
+        language="hi",
+    ))
+
+    assert call_id == internal_call_id
+    assert captured["url"].endswith("/rest/v1/saathi_calls")
+    assert captured["payload"]["household_id"] == household_id
+    assert captured["payload"]["direction"] == "outbound"
+    assert captured["payload"]["status"] == "connecting"
+    assert captured["payload"]["phone_number"] == "+919999999999"
 
 
 def test_consent_repository_saves_memory_consent_with_server_key(monkeypatch):
