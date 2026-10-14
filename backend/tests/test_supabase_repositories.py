@@ -69,7 +69,7 @@ def test_call_repository_persists_record_before_provider_acceptance(monkeypatch)
         language="hi",
     ))
 
-    assert call_id == internal_call_id
+    assert call_id == captured["payload"]["call_id"]
     assert captured["url"].endswith("/rest/v1/saathi_calls")
     assert captured["payload"]["household_id"] == household_id
     assert captured["payload"]["direction"] == "outbound"
