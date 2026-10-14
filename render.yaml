@@ -12,7 +12,7 @@ services:
       - key: CORS_ORIGINS
         sync: false
       - key: SUPABASE_URL
-        sync: false
+        value: https://igqgtlmnwssjaoxkkzbm.supabase.co
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SUPABASE_SECRET_KEY
