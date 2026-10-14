@@ -21,9 +21,10 @@ class InMemoryTaskRepository(TaskRepository):
         self._items: dict[str, Task] = {}
 
     async def create(self, task: Task) -> Task:
-        task_id = f"task-{len(self._items) + 1}"
-        self._items[task_id] = task
-        return task
+        task_id = task.task_id or f"task-{len(self._items) + 1}"
+        created = task.model_copy(update={"task_id": task_id})
+        self._items[task_id] = created
+        return created
 
     async def list_open(self, *, household_id: str) -> list[Task]:
         return [
@@ -33,8 +34,8 @@ class InMemoryTaskRepository(TaskRepository):
         ]
 
     async def set_status(self, *, household_id: str, task_id: str, status: TaskStatus) -> Task:
-        task = self._items[task_id]
-        if task.household_id != household_id:
+        task = self._items.get(task_id)
+        if task is None or task.household_id != household_id:
             raise KeyError("task_not_found")
         updated = task.model_copy(update={"status": status})
         self._items[task_id] = updated
