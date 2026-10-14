@@ -146,3 +146,16 @@ def test_live_call_requires_household_id(monkeypatch):
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "household_id_required_for_live_call"
+
+
+def test_outbound_call_rejects_invalid_or_overlong_phone_numbers():
+    response = TestClient(app).post(
+        "/api/v1/calls",
+        json={
+            "to": "++919999999999",
+            "callback_url": "https://example.test/callback",
+            "consent": True,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "invalid_phone_number"
