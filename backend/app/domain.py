@@ -25,6 +25,7 @@ class Consent(BaseModel):
 
 
 class Task(BaseModel):
+    task_id: str | None = None
     household_id: str
     title: str = Field(min_length=1, max_length=300)
     status: TaskStatus = TaskStatus.PENDING
