@@ -18,7 +18,7 @@ Statuses are evidence-based. Database schema readiness does not imply that a use
 - **Webhook idempotency contract:** the webhook adapter calls `saathi_record_webhook_event`, which atomically claims the event and inserts its `saathi_call_events` ledger row in one transaction. Synthetic SQL verification confirmed first delivery returns new, replay returns duplicate, and both rows are created together.
 - **Outbound call safety/persistence:** live calls now require the persisted outbound-consent record for a valid household UUID; a `saathi_calls` row is created before the provider is called, then provider acceptance is recorded. Provider failures mark the row failed; if post-acceptance tracking fails, the API reports `tracking_status: degraded` rather than claiming the call failed.
 - **Local runtime smoke harness:** CI starts FastAPI on localhost and checks health, readiness, scheme catalogue and a Hindi conversation; CI also starts the built Next.js app and checks `/dashboard`.
-- **Previous full CI:** run 702 passed all five jobs, including backend tests, frontend lint/type/build, dependency audits, Streamlit smoke and Docker build. That run predates the newest repository-adapter and consent-locking commits; see the current CI run before treating those changes as validated.
+- **Latest full CI:** run 754 passed all five jobs on commit `36cb94cef0679deb3284f25e88491de58d6be2cd`, including 144 backend tests, local FastAPI health/readiness/catalogue/conversation smoke, frontend lint/type/build and localhost dashboard smoke, dependency audits, Streamlit smoke and Docker build.
 
 ## PARTIAL — implementation exists, integration remains
 
@@ -43,6 +43,6 @@ Supabase security advisors no longer report RLS-enabled/no-policy findings for S
 
 ## Next actions
 
-1. Wait for the latest CI run on the final branch head (including the atomic webhook RPC and idempotent task adapters); fix every regression before merge.
+1. Keep the pull request open and deployment deferred until 24 October; rerun CI after any further code changes.
 2. Wire consent/task repositories behind authenticated server-side household ownership and add tests for cross-household denial and consent revocation.
 3. Correlate signed provider callbacks to `saathi_calls`, update terminal call states idempotently, and verify with provider sandbox credentials before the 24 October deployment window.
