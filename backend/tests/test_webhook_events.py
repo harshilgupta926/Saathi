@@ -39,7 +39,7 @@ def test_durable_webhook_claim_returns_false_for_new_event(monkeypatch):
             return False
 
         async def post(self, url, headers, json):
-            assert url.endswith("/rest/v1/telephony_webhook_events")
+            assert url.endswith("/rest/v1/saathi_telephony_webhook_events")
             assert json["event_id"] == "evt-new"
             assert json["processing_status"] == "received"
             return Response()
