@@ -17,6 +17,8 @@ from .voice import VoiceGateway
 from .voice_bridge import run_exotel_realtime_session, run_exotel_session
 from .webhook_events import InMemoryWebhookEventStore, derive_event_id, record_supabase_webhook_event
 from .supabase_store import record_conversation_metadata
+from .domain import ConsentType
+from .supabase_repositories import SupabaseCallRepository, SupabaseConsentRepository, SupabaseRepositoryError
 from .scheme_catalog import get_scheme, list_schemes
 
 
@@ -338,7 +340,8 @@ async def place_outbound_call(
 ) -> dict[str, object]:
     if not payload.consent:
         raise HTTPException(status_code=400, detail="explicit_outbound_call_consent_required")
-    if not payload.to.replace("+", "").isdigit():
+    digits = payload.to[1:] if payload.to.startswith("+") else payload.to
+    if not digits.isdigit() or not 8 <= len(digits) <= 15:
         raise HTTPException(status_code=422, detail="invalid_phone_number")
     if settings.demo_mode and settings.app_env.lower() != "production":
         emit_event("call.demo", channel="exotel", realtime=payload.realtime_voice_ai)
@@ -349,6 +352,34 @@ async def place_outbound_call(
     required = (settings.exotel_account_sid, settings.exotel_api_key, settings.exotel_api_token, settings.exotel_virtual_number)
     if not all(required):
         raise HTTPException(status_code=503, detail="telephony_provider_not_configured")
+    if payload.realtime_voice_ai and not settings.exotel_stream_url:
+        raise HTTPException(status_code=503, detail="realtime_stream_not_configured")
+    if not payload.household_id:
+        raise HTTPException(status_code=400, detail="household_id_required_for_live_call")
+
+    try:
+        consent = await SupabaseConsentRepository().get(
+            household_id=payload.household_id,
+            consent_type=ConsentType.OUTBOUND_CALLS,
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="valid_household_id_required")
+    except SupabaseRepositoryError:
+        raise HTTPException(status_code=503, detail="outbound_call_consent_unavailable")
+    if consent is None or not consent.granted:
+        raise HTTPException(status_code=403, detail="recorded_outbound_call_consent_required")
+
+    call_repository = SupabaseCallRepository()
+    try:
+        internal_call_id = await call_repository.create(
+            household_id=consent.household_id,
+            phone_number=payload.to,
+            provider="exotel",
+            language=payload.language,
+        )
+    except (SupabaseRepositoryError, ValueError):
+        raise HTTPException(status_code=503, detail="call_persistence_unavailable")
+
     provider = ExotelTelephonyProvider(
         account_sid=settings.exotel_account_sid,
         api_key=settings.exotel_api_key,
@@ -356,18 +387,47 @@ async def place_outbound_call(
         caller_id=settings.exotel_virtual_number,
         host=settings.exotel_subdomain,
     )
-    if payload.realtime_voice_ai:
-        if not settings.exotel_stream_url:
-            raise HTTPException(status_code=503, detail="realtime_stream_not_configured")
-        call_id = await provider.place_voice_ai_call(
-            to=payload.to,
-            stream_url=settings.exotel_stream_url,
-            callback_url=payload.callback_url,
-        )
-    else:
-        call_id = await provider.place_call(to=payload.to, callback_url=payload.callback_url)
-    emit_event("call.placed", channel="exotel", call_id=call_id, realtime=payload.realtime_voice_ai)
-    return {"status": "accepted", "call_id": call_id, "provider": "exotel", "realtime": payload.realtime_voice_ai}
+    try:
+        if payload.realtime_voice_ai:
+            provider_call_id = await provider.place_voice_ai_call(
+                to=payload.to,
+                stream_url=settings.exotel_stream_url,
+                callback_url=payload.callback_url,
+            )
+        else:
+            provider_call_id = await provider.place_call(to=payload.to, callback_url=payload.callback_url)
+        if not provider_call_id:
+            raise RuntimeError("telephony_provider_missing_call_id")
+    except Exception:
+        try:
+            await call_repository.mark_failed(call_id=internal_call_id)
+        except Exception:
+            emit_event("call.record_update_failed", internal_call_id=internal_call_id, update="failed")
+        raise HTTPException(status_code=502, detail="telephony_provider_call_failed")
+
+    tracking_status = "recorded"
+    try:
+        await call_repository.mark_accepted(call_id=internal_call_id, provider_call_id=provider_call_id)
+    except SupabaseRepositoryError:
+        # The pre-call record exists; surface degraded tracking without falsely
+        # claiming the provider rejected a call it has already accepted.
+        tracking_status = "degraded"
+        emit_event("call.tracking_degraded", internal_call_id=internal_call_id, provider="exotel")
+
+    emit_event(
+        "call.placed",
+        channel="exotel",
+        call_id=provider_call_id,
+        internal_call_id=internal_call_id,
+        realtime=payload.realtime_voice_ai,
+    )
+    return {
+        "status": "accepted",
+        "call_id": provider_call_id,
+        "provider": "exotel",
+        "realtime": payload.realtime_voice_ai,
+        "tracking_status": tracking_status,
+    }
 
 
 @app.websocket("/api/v1/telephony/stream")

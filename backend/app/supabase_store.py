@@ -20,10 +20,11 @@ async def record_conversation_metadata(
     correlation_id: str | None,
     response_class: str,
 ) -> bool:
-    """Write privacy-minimised operational metadata to Supabase.
+    """Write privacy-minimised operational metadata to the shared Supabase project.
 
     Raw prompts, transcripts, assistant responses, phone numbers and secrets are
-    deliberately excluded. A failed audit write must not take down the core
+    deliberately excluded. Saathi uses namespaced tables to avoid collisions
+    with Nihdhoom's own schema. A failed audit write must not take down the core
     assistance flow, but is logged for operators.
     """
     settings = get_settings()
@@ -58,7 +59,7 @@ async def record_conversation_metadata(
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.post(
-                f"{base_url}/rest/v1/conversations",
+                f"{base_url}/rest/v1/saathi_conversations",
                 headers=headers,
                 json=payload,
             )

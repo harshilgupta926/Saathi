@@ -75,3 +75,15 @@ def test_conversation_repository_keeps_language_and_timestamp():
         assert repo.messages[0]["created_at"] == timestamp
 
     asyncio.run(run())
+
+
+def test_task_creation_is_idempotent_for_the_same_task():
+    async def run():
+        repo = InMemoryTaskRepository()
+        task = Task(household_id="h1", title="Call back")
+        first = await repo.create(task)
+        second = await repo.create(task)
+        assert first.task_id == second.task_id
+        assert len(await repo.list_open(household_id="h1")) == 1
+
+    asyncio.run(run())

@@ -25,8 +25,11 @@ from app.webhook_events import record_supabase_webhook_event
 
 def test_durable_webhook_claim_returns_false_for_new_event(monkeypatch):
     class Response:
-        status_code = 201
+        status_code = 200
         is_success = True
+
+        def json(self):
+            return False
 
     class Client:
         def __init__(self, timeout):
@@ -39,9 +42,9 @@ def test_durable_webhook_claim_returns_false_for_new_event(monkeypatch):
             return False
 
         async def post(self, url, headers, json):
-            assert url.endswith("/rest/v1/telephony_webhook_events")
-            assert json["event_id"] == "evt-new"
-            assert json["processing_status"] == "received"
+            assert url.endswith("/rest/v1/rpc/saathi_record_webhook_event")
+            assert json["p_event_id"] == "evt-new"
+            assert json["p_event_type"] == "call.completed"
             return Response()
 
     monkeypatch.setattr("app.webhook_events.httpx.AsyncClient", Client)
@@ -56,8 +59,11 @@ def test_durable_webhook_claim_returns_false_for_new_event(monkeypatch):
 
 def test_durable_webhook_claim_treats_unique_conflict_as_duplicate(monkeypatch):
     class Response:
-        status_code = 409
-        is_success = False
+        status_code = 200
+        is_success = True
+
+        def json(self):
+            return True
 
     class Client:
         def __init__(self, timeout):
