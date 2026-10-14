@@ -67,4 +67,6 @@ class CallRequest(BaseModel):
     to: str = Field(min_length=8, max_length=32)
     callback_url: str = Field(min_length=8, max_length=500)
     consent: bool = False
+    household_id: str | None = Field(default=None, min_length=1, max_length=80)
+    language: str = Field(default="hi", min_length=2, max_length=20)
     realtime_voice_ai: bool = False
