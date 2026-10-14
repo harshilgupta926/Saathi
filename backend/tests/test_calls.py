@@ -149,13 +149,15 @@ def test_live_call_requires_household_id(monkeypatch):
 
 
 def test_outbound_call_rejects_invalid_or_overlong_phone_numbers():
-    response = TestClient(app).post(
-        "/api/v1/calls",
-        json={
-            "to": "++919999999999",
-            "callback_url": "https://example.test/callback",
-            "consent": True,
-        },
-    )
-    assert response.status_code == 422
-    assert response.json()["detail"] == "invalid_phone_number"
+    client = TestClient(app)
+    for phone_number in ("++919999999999", "+1234567890123456"):
+        response = client.post(
+            "/api/v1/calls",
+            json={
+                "to": phone_number,
+                "callback_url": "https://example.test/callback",
+                "consent": True,
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "invalid_phone_number"
