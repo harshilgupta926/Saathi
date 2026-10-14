@@ -15,7 +15,7 @@ Statuses are evidence-based. Database schema readiness does not imply that a use
 - **Sequence isolation:** anon/authenticated cannot use the three Saathi identity sequences; service_role can.
 - **Consent database guard:** synthetic SQL checks confirmed memory writes fail without current memory consent, memory rows are purged on memory-consent revocation, outbound-call consent revocation does not erase unrelated memory consent, and memory cannot be reinserted after revocation.
 - **Operational audit privacy:** the conversation adapter sends metadata only and uses `saathi_conversations`; regression tests assert message/transcript/reply fields are absent.
-- **Webhook idempotency contract:** the webhook adapter uses `saathi_telephony_webhook_events`, treats unique conflicts as duplicates, and fails closed on persistence errors.
+- **Webhook idempotency contract:** the webhook adapter calls `saathi_record_webhook_event`, which atomically claims the event and inserts its `saathi_call_events` ledger row in one transaction. Synthetic SQL verification confirmed first delivery returns new, replay returns duplicate, and both rows are created together.
 - **Local runtime smoke harness:** CI starts FastAPI on localhost and checks health, readiness, scheme catalogue and a Hindi conversation; CI also starts the built Next.js app and checks `/dashboard`.
 - **Previous full CI:** run 702 passed all five jobs, including backend tests, frontend lint/type/build, dependency audits, Streamlit smoke and Docker build. That run predates the newest repository-adapter and consent-locking commits; see the current CI run before treating those changes as validated.
 
@@ -24,7 +24,7 @@ Statuses are evidence-based. Database schema readiness does not imply that a use
 - **Conversation metadata:** backend adapter is wired to the namespaced table; real PostgREST writes require the server-side Nihdhoom secret to be configured in the local/hosted API environment. Unit tests use a mocked HTTP client.
 - **Durable webhook deduplication:** backend adapter is wired to the namespaced event ledger. Real signed-provider webhook delivery has not been exercised with provider credentials.
 - **Consent/task repositories:** server-only Supabase adapters and regression tests exist. They are not yet wired to authenticated household/task API routes.
-- **Household memory, tasks, volunteer cases and calls:** namespaced schema, RLS, indexes and consent protections exist. User-facing CRUD, assignment, call lifecycle, retention/deletion UX and authenticated ownership flows are not yet integrated.
+- **Household memory, tasks, volunteer cases and calls:** namespaced schema, RLS, indexes and consent protections exist. Consent/task repositories are implemented but not yet wired to authenticated household/task routes; call lifecycle records in `saathi_calls`, case assignment, retention/deletion UX and authenticated ownership flows are not yet integrated.
 - **Local application:** CI's isolated runner performs localhost runtime smoke tests. This execution container could not clone GitHub directly because outbound DNS resolution failed; no claim is made that the full stack was started in this shell.
 
 ## BLOCKED / NOT TESTED
@@ -41,6 +41,6 @@ Supabase security advisors no longer report RLS-enabled/no-policy findings for S
 
 ## Next actions
 
-1. Wait for the latest CI run on the final branch head; fix every regression before merge.
+1. Wait for the latest CI run on the final branch head (including the atomic webhook RPC and idempotent task adapters); fix every regression before merge.
 2. Wire consent/task repositories behind authenticated server-side household ownership and add tests for cross-household denial and consent revocation.
 3. Integrate durable call records with provider callbacks and verify idempotency before the 24 October deployment window.
