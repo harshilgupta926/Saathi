@@ -116,18 +116,48 @@ def test_task_repository_creates_task_and_keeps_database_id(monkeypatch):
         }], status_code=201)
 
     fake_client(monkeypatch, respond)
-    task = asyncio.run(SupabaseTaskRepository().create(Task(
+    original = Task(
         household_id=household_id,
         title="Call back",
         missing_items=["income certificate"],
-    )))
+    )
+    task = asyncio.run(SupabaseTaskRepository().create(original))
 
     assert task.task_id == task_id
     assert task.status == TaskStatus.PENDING
     assert captured["method"] == "POST"
     assert captured["url"].endswith("/rest/v1/saathi_pending_tasks")
     assert captured["payload"]["household_id"] == household_id
+    assert captured["payload"]["idempotency_key"] == original.idempotency_key
     assert captured["payload"]["idempotency_key"]
+
+
+def test_task_repository_retries_idempotent_insert_by_fetching_existing_task(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    task_id = "22222222-2222-4222-8222-222222222222"
+    task = Task(household_id=household_id, title="Call back")
+    calls = []
+
+    def respond(method, url, headers, payload):
+        calls.append((method, url, payload))
+        if method == "POST":
+            assert payload["idempotency_key"] == task.idempotency_key
+            return Response({"message": "unique conflict"}, status_code=409)
+        assert f"idempotency_key=eq.{task.idempotency_key}" in url
+        return Response([{
+            "id": task_id,
+            "household_id": household_id,
+            "title": "Call back",
+            "status": "pending",
+            "missing_requirements": [],
+            "scheduled_callback": None,
+        }])
+
+    fake_client(monkeypatch, respond)
+    saved = asyncio.run(SupabaseTaskRepository().create(task))
+    assert saved.task_id == task_id
+    assert [item[0] for item in calls] == ["POST", "GET"]
 
 
 def test_task_repository_scopes_updates_to_household(monkeypatch):
