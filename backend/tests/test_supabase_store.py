@@ -30,7 +30,7 @@ def test_conversation_metadata_uses_namespaced_table_and_minimal_payload(monkeyp
     monkeypatch.setattr(
         "app.supabase_store.get_settings",
         lambda: SimpleNamespace(
-            supabase_url="https://nihdooom.supabase.co/",
+            supabase_url="https://igqgtlmnwssjaoxkkzbm.supabase.co/",
             supabase_secret_key="server-test-key",
         ),
     )
@@ -49,7 +49,7 @@ def test_conversation_metadata_uses_namespaced_table_and_minimal_payload(monkeyp
     )
 
     assert result is True
-    assert captured["url"] == "https://nihdooom.supabase.co/rest/v1/saathi_conversations"
+    assert captured["url"] == "https://igqgtlmnwssjaoxkkzbm.supabase.co/rest/v1/saathi_conversations"
     assert captured["headers"]["Authorization"] == "Bearer server-test-key"
     assert captured["payload"]["household_id"] is None
     assert captured["payload"]["agent_used"] == "schemes"
