@@ -1,5 +1,7 @@
 from base64 import b64encode
 from hmac import compare_digest
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 from time import perf_counter
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -92,6 +94,8 @@ def readiness() -> dict[str, object]:
         and settings.exotel_account_sid
         and settings.exotel_virtual_number
         and settings.exotel_stream_url
+        and getattr(settings, "telephony_callback_url", None)
+        and getattr(settings, "telephony_callback_signature_verified", False)
     )
     reasoning = bool(getattr(settings, "gemini_api_key", None) or getattr(settings, "openai_api_key", None))
     mandi = bool(settings.mandi_api_key and settings.mandi_resource_id)
@@ -136,6 +140,35 @@ def _authorize_household_context(household_id: str | None) -> None:
     """Until a verified end-user identity is wired, production cannot trust client household IDs."""
     if household_id and not (settings.demo_mode and settings.app_env.lower() != "production"):
         raise HTTPException(status_code=403, detail="verified_household_identity_required")
+
+
+def _configured_telephony_callback_url() -> str:
+    """Return a trusted public HTTPS callback URL from server configuration only."""
+    raw = (settings.telephony_callback_url or "").strip()
+    try:
+        parsed = urlsplit(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="public_telephony_callback_url_not_configured") from exc
+    host = (parsed.hostname or "").lower()
+    invalid = (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or bool(parsed.fragment)
+        or bool(parsed.query)
+        or parsed.path.rstrip("/") != "/api/v1/webhooks/telephony"
+    )
+    if host in {"localhost", "localhost.localdomain"} or host.endswith((".localhost", ".local")):
+        invalid = True
+    try:
+        if host and not ip_address(host).is_global:
+            invalid = True
+    except ValueError:
+        pass
+    if invalid:
+        raise HTTPException(status_code=503, detail="public_telephony_callback_url_not_configured")
+    return raw
 
 
 def _authorize_telephony_stream(supplied_token: str | None) -> None:
@@ -366,8 +399,11 @@ async def place_outbound_call(
     required = (settings.exotel_account_sid, settings.exotel_api_key, settings.exotel_api_token, settings.exotel_virtual_number)
     if not all(required):
         raise HTTPException(status_code=503, detail="telephony_provider_not_configured")
+    if not getattr(settings, "telephony_callback_signature_verified", False):
+        raise HTTPException(status_code=503, detail="telephony_callback_signature_contract_unverified")
     if payload.realtime_voice_ai and not settings.exotel_stream_url:
         raise HTTPException(status_code=503, detail="realtime_stream_not_configured")
+    callback_url = _configured_telephony_callback_url()
     if not payload.household_id:
         raise HTTPException(status_code=400, detail="household_id_required_for_live_call")
 
@@ -406,10 +442,10 @@ async def place_outbound_call(
             provider_call_id = await provider.place_voice_ai_call(
                 to=payload.to,
                 stream_url=settings.exotel_stream_url,
-                callback_url=payload.callback_url,
+                callback_url=callback_url,
             )
         else:
-            provider_call_id = await provider.place_call(to=payload.to, callback_url=payload.callback_url)
+            provider_call_id = await provider.place_call(to=payload.to, callback_url=callback_url)
         if not provider_call_id:
             raise RuntimeError("telephony_provider_missing_call_id")
     except Exception:
@@ -534,17 +570,29 @@ async def telephony_webhook(
         raise HTTPException(status_code=503, detail="telephony_webhook_not_configured")
     if not x_saathi_signature or not HmacWebhookVerifier(settings.telephony_webhook_secret).verify(body, x_saathi_signature):
         raise HTTPException(status_code=401, detail="invalid_signature")
-    event_id = derive_event_id(body, x_provider_event_id)
-    event_type = None
+    # The signature covers the raw body, not arbitrary headers. Derive the
+    # idempotency key from the signed bytes rather than trusting an unsigned ID header.
+    event_id = derive_event_id(body)
+    content_type = request.headers.get("content-type", "").lower()
+    parsed_body: dict[str, object] = {}
     try:
-        parsed_body = await request.json()
-        if isinstance(parsed_body, dict) and isinstance(parsed_body.get("event"), str):
-            event_type = parsed_body["event"]
-        elif isinstance(parsed_body, dict) and isinstance(parsed_body.get("event_type"), str):
-            event_type = parsed_body["event_type"]
-    except (ValueError, UnicodeDecodeError):
-        # The signed raw body remains authoritative; event-type metadata is optional.
-        event_type = None
+        if content_type.startswith("application/json"):
+            candidate = await request.json()
+            if isinstance(candidate, dict):
+                parsed_body = candidate
+        elif content_type.startswith("application/x-www-form-urlencoded") or content_type.startswith("multipart/form-data"):
+            form = await request.form()
+            parsed_body = {str(key): value for key, value in form.items() if isinstance(value, str)}
+        else:
+            raise HTTPException(status_code=415, detail="unsupported_webhook_content_type")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="invalid_webhook_payload") from exc
+
+    event_type = next((parsed_body.get(key) for key in ("event", "event_type", "Status", "CallStatus", "CallState", "status") if isinstance(parsed_body.get(key), str)), None)
+    provider_call_id = next((parsed_body.get(key) for key in ("CallSid", "call_sid", "provider_call_id") if isinstance(parsed_body.get(key), str)), None)
+    provider_status = next((parsed_body.get(key) for key in ("Status", "CallStatus", "CallState", "status", "event_type", "event") if isinstance(parsed_body.get(key), str)), None)
 
     if settings.supabase_url and settings.supabase_secret_key:
         try:
@@ -562,4 +610,26 @@ async def telephony_webhook(
         raise HTTPException(status_code=503, detail="durable_webhook_store_not_configured")
     else:
         duplicate = webhook_events.seen_or_record(event_id)
-    return {"status": "duplicate" if duplicate else "accepted", "event_id": event_id}
+
+    call_status_result = "unmapped"
+    if provider_call_id and provider_status:
+        if not (settings.supabase_url and settings.supabase_secret_key):
+            if settings.app_env.lower() == "production":
+                raise HTTPException(status_code=503, detail="call_status_store_not_configured")
+            call_status_result = "not_persisted_demo"
+        else:
+            try:
+                call_status_result = await SupabaseCallRepository().apply_provider_status(
+                    provider_event_id=event_id,
+                    provider_call_id=provider_call_id,
+                    provider_status=provider_status,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except SupabaseRepositoryError as exc:
+                raise HTTPException(status_code=503, detail="call_status_processing_unavailable") from exc
+    return {
+        "status": "duplicate" if duplicate else "accepted",
+        "event_id": event_id,
+        "call_status": call_status_result,
+    }

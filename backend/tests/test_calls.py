@@ -18,6 +18,8 @@ def production_call_settings():
         exotel_virtual_number="+911234567890",
         exotel_subdomain="api.in.exotel.com",
         exotel_stream_url=None,
+        telephony_callback_url="https://saathi.example.com/api/v1/webhooks/telephony",
+        telephony_callback_signature_verified=True,
     )
 
 

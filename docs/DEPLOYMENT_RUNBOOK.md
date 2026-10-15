@@ -35,7 +35,7 @@ Do not set real API keys in GitHub files, commit history, or client-side `NEXT_P
 7. Deploy. Add the final Vercel origin to Render `CORS_ORIGINS` only if another trusted caller requires cross-origin access.
 8. Open the deployed site and test the landing page, dashboard, a text request, mobile layout, and provider/capability labels.
 
-The public browser variable `NEXT_PUBLIC_API_URL` is an endpoint, not a secret. Provider credentials must remain server-side.
+The browser does not need a direct API URL; requests go through the same-origin `/backend/*` proxy. Provider credentials and the backend API token must remain server-side.
 
 ## 3. Configure live providers one at a time
 
@@ -45,7 +45,7 @@ Keep demo mode on until you have set the appropriate server-side credentials and
 - **Mandi:** set `MANDI_API_KEY` and the confirmed `MANDI_RESOURCE_ID`; test commodity, district, market, observation date, price unit, and source. A retrieval timestamp is not the observation date.
 - **Browser voice:** set `SARVAM_API_KEY`; test real microphone capture, transcription, tool result, and returned audio. Record latency and provider errors.
 - **Reasoning model:** set `GEMINI_API_KEY` only if the selected orchestration path needs it; the deterministic routing baseline should remain available.
-- **Phone calls:** configure Exotel only after the API is deployed on public HTTPS/WSS and the complete call has been tested. Required values include account SID, API key/token, virtual number, stream URL, webhook secret, and a strong call API token. Do not expose call credentials to the browser.
+- **Phone calls:** configure Exotel only after the API is deployed on public HTTPS/WSS and the complete call has been tested. Required values include account SID, API key/token, virtual number, public WSS stream URL, `TELEPHONY_CALLBACK_URL` set to the public HTTPS webhook endpoint, webhook secret, and a strong call API token. The callback URL is server-configured; client-provided callback URLs are ignored. Live outbound calls fail closed unless `TELEPHONY_CALLBACK_SIGNATURE_VERIFIED=true` is set after a provider-sandbox test proves the deployed callback path authenticates the exact raw request body and processes terminal states. The current HMAC endpoint requires a trusted signer; do not set this flag merely because Exotel credentials exist. See [the provider verification plan](PROVIDER_VERIFICATION.md). Do not expose call credentials to the browser.
 - **Supabase:** leave persistence disabled until migrations, Auth/JWT verification, row-level security, and cross-household tests are complete.
 
 After a provider is tested, turn `DEMO_MODE=false` only when the enabled capability paths are ready for the audience. Verify that unavailable providers fail honestly rather than returning demo values as live facts.

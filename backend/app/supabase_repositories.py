@@ -219,7 +219,6 @@ class SupabaseTaskRepository(_SupabaseRepository):
         return self._to_task(rows[0])
 
 
-
 class SupabaseCallRepository(_SupabaseRepository):
     """Persist outbound call lifecycle metadata before and after provider placement."""
 
@@ -277,3 +276,76 @@ class SupabaseCallRepository(_SupabaseRepository):
         )
         if not rows:
             raise SupabaseRepositoryError("call_record_not_found")
+
+    async def apply_provider_status(
+        self,
+        *,
+        provider_event_id: str,
+        provider_call_id: str,
+        provider_status: str,
+    ) -> str:
+        """Apply a verified provider callback without allowing terminal-state regression."""
+        import re
+        from urllib.parse import quote
+
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", provider_call_id or ""):
+            raise ValueError("invalid_provider_call_id")
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", provider_event_id or ""):
+            raise ValueError("invalid_provider_event_id")
+        normalized = (provider_status or "").strip().lower().replace("_", "-")
+        mapping = {
+            "queued": "connecting", "ringing": "connecting", "initiated": "connecting",
+            "in-progress": "in_progress", "answered": "in_progress",
+            "completed": "completed", "failed": "failed", "busy": "failed",
+            "no-answer": "failed", "canceled": "failed", "cancelled": "failed",
+            "call.completed": "completed", "call.failed": "failed", "call.busy": "failed",
+            "call.no-answer": "failed", "call.in-progress": "in_progress",
+        }
+        target = mapping.get(normalized)
+        if target is None:
+            raise ValueError("unsupported_provider_call_status")
+
+        encoded_call = quote(provider_call_id, safe="")
+        rows = await self._request(
+            "GET", f"saathi_calls?provider_call_id=eq.{encoded_call}&select=id,call_id,status",
+        )
+        if not rows:
+            raise SupabaseRepositoryError("provider_call_not_found")
+        row = rows[0]
+        internal_id = str(row["id"])
+        current = str(row.get("status") or "received")
+        now = datetime.now(timezone.utc).isoformat()
+        effective = current if current in {"completed", "failed", "escalated"} else target
+
+        if current not in {"completed", "failed", "escalated"}:
+            if target in {"completed", "failed"}:
+                await self._request(
+                    "PATCH",
+                    f"saathi_calls?id=eq.{quote(internal_id, safe='')}&status=in.(received,connecting,in_progress)&select=id",
+                    {"status": target, "ended_at": now, "updated_at": now},
+                )
+            elif target == "in_progress":
+                await self._request(
+                    "PATCH",
+                    f"saathi_calls?id=eq.{quote(internal_id, safe='')}&status=in.(received,connecting)&select=id",
+                    {"status": target, "updated_at": now},
+                )
+            elif target == "connecting" and current == "received":
+                await self._request(
+                    "PATCH",
+                    f"saathi_calls?id=eq.{quote(internal_id, safe='')}&status=eq.received&select=id",
+                    {"status": target, "updated_at": now},
+                )
+
+        await self._request(
+            "PATCH",
+            f"saathi_call_events?provider_event_id=eq.{quote(provider_event_id, safe='')}&select=id",
+            {
+                "call_id": internal_id,
+                "processing_status": "processed",
+                "processed_at": now,
+                "metadata": {"provider_call_id": provider_call_id, "provider_status": normalized, "applied_status": effective},
+            },
+        )
+        return effective
+

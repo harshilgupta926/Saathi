@@ -246,3 +246,67 @@ def test_consent_repository_does_not_accept_invalid_household_ids(monkeypatch):
             household_id="demo-household",
             consent_type=ConsentType.MEMORY,
         ))
+
+
+def test_call_repository_applies_terminal_provider_status_and_links_event(monkeypatch):
+    configure(monkeypatch)
+    internal_id = "33333333-3333-4333-8333-333333333333"
+    calls = []
+
+    def respond(method, url, headers, payload):
+        calls.append((method, url, payload))
+        if method == "GET":
+            return Response([{"id": internal_id, "call_id": internal_id, "status": "connecting"}])
+        if "/saathi_calls?" in url:
+            return Response([{"id": internal_id}])
+        return Response([{"id": 9}])
+
+    fake_client(monkeypatch, respond)
+    result = asyncio.run(SupabaseCallRepository().apply_provider_status(
+        provider_event_id="sha256:" + "a" * 64, provider_call_id="exotelCall123", provider_status="completed",
+    ))
+    assert result == "completed"
+    assert calls[0][0] == "GET" and "provider_call_id=eq.exotelCall123" in calls[0][1]
+    call_update = next(item for item in calls if "/saathi_calls?" in item[1] and item[0] == "PATCH")
+    assert call_update[2]["status"] == "completed" and call_update[2]["ended_at"]
+    event_update = next(item for item in calls if "/saathi_call_events?" in item[1])
+    assert event_update[2]["processing_status"] == "processed"
+    assert event_update[2]["call_id"] == internal_id
+    assert event_update[2]["metadata"]["provider_status"] == "completed"
+
+
+def test_call_repository_does_not_regress_terminal_call_state(monkeypatch):
+    configure(monkeypatch)
+    internal_id = "33333333-3333-4333-8333-333333333333"
+    calls = []
+
+    def respond(method, url, headers, payload):
+        calls.append((method, url, payload))
+        if method == "GET":
+            return Response([{"id": internal_id, "call_id": internal_id, "status": "completed"}])
+        return Response([{"id": 9}])
+
+    fake_client(monkeypatch, respond)
+    result = asyncio.run(SupabaseCallRepository().apply_provider_status(
+        provider_event_id="sha256:" + "b" * 64, provider_call_id="exotelCall123", provider_status="ringing",
+    ))
+    assert result == "completed"
+    assert not any(method == "PATCH" and "/saathi_calls?" in url for method, url, _ in calls)
+    assert any("/saathi_call_events?" in url for _, url, _ in calls)
+
+
+def test_call_repository_fails_closed_when_provider_call_is_unknown(monkeypatch):
+    configure(monkeypatch)
+    fake_client(monkeypatch, lambda *args: Response([]))
+    with pytest.raises(SupabaseRepositoryError, match="provider_call_not_found"):
+        asyncio.run(SupabaseCallRepository().apply_provider_status(
+            provider_event_id="evt-123", provider_call_id="unknownCall", provider_status="completed",
+        ))
+
+
+def test_call_repository_rejects_unknown_provider_status(monkeypatch):
+    configure(monkeypatch)
+    with pytest.raises(ValueError, match="unsupported_provider_call_status"):
+        asyncio.run(SupabaseCallRepository().apply_provider_status(
+            provider_event_id="evt-123", provider_call_id="exotelCall123", provider_status="surprise",
+        ))
