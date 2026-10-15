@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -68,3 +69,58 @@ def test_outbound_call_demo_mode_does_not_bypass_auth_in_production(monkeypatch)
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "call_api_unauthorized"
+
+
+
+@pytest.mark.parametrize(
+    ("content_type", "payload"),
+    [
+        ("audio/webm;codecs=opus", b"not actually webm"),
+        ("audio/wav", b"not actually wav"),
+        ("audio/webm", b"RIFF" + b"\x00" * 4 + b"WAVE" + b"invalid webm"),
+        ("audio/x-wav", b"\x1aE\xdf\xa3" + b"invalid wav"),
+    ],
+)
+def test_voice_upload_rejects_mismatched_audio_container_before_provider(
+    monkeypatch, content_type, payload
+):
+    import app.main as main
+
+    async def unexpected_voice_provider(*args, **kwargs):
+        raise AssertionError("invalid upload must not reach the speech provider")
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "development")
+    monkeypatch.setattr(main.voice_gateway, "handle", unexpected_voice_provider)
+    response = TestClient(app).post(
+        "/api/v1/voice/turn",
+        files={"audio": ("recording.bin", payload, content_type)},
+        data={"language": "hi"},
+    )
+    assert response.status_code == 415
+    assert response.json()["detail"] in {"audio_content_mismatch", "unsupported_audio_type"}
+
+
+
+def test_voice_upload_accepts_webm_codec_parameter_before_provider(monkeypatch):
+    import app.main as main
+
+    async def unavailable_voice_provider(*args, **kwargs):
+        raise RuntimeError("speech_provider_unavailable")
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "development")
+    monkeypatch.setattr(main.voice_gateway, "handle", unavailable_voice_provider)
+    response = TestClient(app).post(
+        "/api/v1/voice/turn",
+        files={
+            "audio": (
+                "recording.webm",
+                b"\x1aE\xdf\xa3" + b"container-fixture",
+                "audio/webm;codecs=opus",
+            )
+        },
+        data={"language": "hi"},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "speech_provider_unavailable"

@@ -1,6 +1,6 @@
 # Saathi Release Feature Ledger
 
-Last verified: 2026-10-15 UTC
+Last verified: 2026-10-15 UTC (2026-10-16 IST)
 
 - Main baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
@@ -55,3 +55,41 @@ Last verified: 2026-10-15 UTC
 - Added regression tests for high-cardinality input, malformed IP values, invalid Upstash host/port, missing configuration, outage, response type validation, over-limit handling, and pseudonymous key construction.
 - Status: **merged; exact-head CI passed**. Run #796 passed all five jobs on PR head `b6820fae1e7fbf70cebc931eb3647abdf864a293`. The local environment could not clone GitHub, so no local full build is claimed.
 - Operational dependency: provision the shared Upstash REST store and verify the hosting proxy overwrites the configured IP header before production traffic is enabled. This change intentionally fails closed until configured.
+
+
+## Engineering sprint — dashboard failure-path hardening (2026-10-16)
+
+- Branch: `fix/dashboard-fail-closed-agent-errors`.
+- Change: agent requests now have a 20-second abort timeout, validate the minimum response contract, clear stale answers before a new request, and render failures in a separate accessible alert with retry. The catch path no longer creates a synthetic `Result`.
+- Regression coverage: `frontend/tests/agent-error-contract.test.mjs` checks timeout/abort wiring, malformed response rejection, stale-result clearing, accessible error state, retry control, and absence of the previous fabricated-result pattern.
+- Verification: exact-head CI run [#953](https://github.com/kaustubhdua/Saathi/actions/runs/38804190786) passed on dashboard candidate SHA `5f58b25d84296c059aab5fcb54f5b516a2036b5e`. Later telephony changes passed exact-head CI run [#957](https://github.com/kaustubhdua/Saathi/actions/runs/38812480101) on SHA `4f1133b3dcd94914a33ec2b73b40add64991143e`. Later ledger/matrix commits trigger a fresh exact-head run; verify the current PR head before merge. CI does not establish production behavior.
+- Production: not deployed; deployed SHA and real backend journey remain unverified. No database or provider configuration changed.
+
+- CI verification update (2026-10-16): GitHub Actions run [#953](https://github.com/kaustubhdua/Saathi/actions/runs/38804190786) completed successfully on PR head `5f58b25d84296c059aab5fcb54f5b516a2036b5e`. All five jobs passed: backend pytest/API smoke, frontend `npm ci`/lint/regression tests/TypeScript/build/dashboard smoke, Streamlit smoke, dependency audit, and Docker build. This verifies the candidate code at that SHA, not production behavior. Any subsequent commit requires a fresh exact-head CI result.
+
+
+## Engineering sprint — demo telephony truthfulness (2026-10-16 IST / 2026-10-15 UTC)
+
+- Changed `POST /api/v1/calls` in non-production demo mode to return HTTP 503 with `telephony_unavailable_in_demo_mode`. It no longer returns the synthetic `demo-call-accepted` ID or a success-looking status.
+- The demo path emits only a capability-unavailable event; a regression test patches the Exotel adapter to fail if invoked and verifies the response contains no call ID or acceptance claim.
+- Code and test committed to branch `fix/dashboard-fail-closed-agent-errors`.
+- Exact-head GitHub Actions run [#957](https://github.com/kaustubhdua/Saathi/actions/runs/38812480101) passed all five jobs on code SHA `4f1133b3dcd94914a33ec2b73b40add64991143e`. After the ledger/matrix cleanup, exact-head run [#959](https://github.com/kaustubhdua/Saathi/actions/runs/38812734100) also passed all five jobs on SHA `cff8b3ca9f41efcb6a0a7ad13ff2324763c300a2`. The current documentation refresh requires a fresh exact-head CI run before merge. CI does not establish production behaviour.
+- Demo phone calling is **UNAVAILABLE**. Production telephony remains **NOT VERIFIED** pending real Exotel sandbox acceptance, persisted purpose-specific consent, and a verified callback-authentication contract. No live call, database mutation, provider activation, or deployment was performed.
+
+
+## Engineering sprint — voice upload validation (2026-10-16 IST)
+
+- The voice endpoint now normalizes MIME types with codec parameters (for example, `audio/webm;codecs=opus`) before allowlist comparison, while still requiring an explicit supported audio type.
+- After the existing bounded 8 MB read, WAV uploads must have a RIFF/WAVE container signature and WebM uploads must have the EBML header. A spoofed MIME/header mismatch returns HTTP 415 before bytes reach STT/TTS providers.
+- Regression coverage checks malformed WebM, malformed WAV, cross-container MIME spoofing, and confirms codec-qualified WebM MIME reaches the provider boundary after signature validation; the provider is patched to fail if invalid media reaches it.
+- Initial exact-head CI run #963 found one expected-contract regression in `tests/test_health.py`: the existing provider-gating test did not allow the new explicit HTTP 415 for malformed audio. Updated the test to accept the intentional rejection; 174 other tests passed in that run. A fresh exact-head run is pending. No provider call, database write, or deployment was performed.
+- Remaining: add bounded request-level timeout/cancellation and confirm browser-produced media fixtures against real low-end Android capture before enabling any live provider path.
+
+
+## Engineering sprint — scheme effective-date provenance (2026-10-16 IST)
+
+- Scheme records now expose `effective_from` separately from `source_checked_on`, plus an explanatory `effective_date_note`; the API serializes these fields through its existing dataclass response.
+- PM-KISAN operational date: `2018-12-01`, as stated on the [official PM-KISAN portal](https://pmkisan.gov.in/).
+- PMFBY inception is represented as `Kharif 2016`, matching the [official PMFBY guidelines](https://pmfby.gov.in/pdf/Revamped%20Operational%20Guidelines_17th%20August%202020.pdf). The record explicitly warns that current state/crop/season notifications may have separate effective dates and deadlines.
+- The catalogue review date is `2026-10-15` UTC / `2026-10-16` IST; this records the review, not a live government data feed. Regression tests assert both effective-date fields and the distinction from current eligibility/season rules.
+- Verification: exact-head CI for this addition is pending. No scheme eligibility is inferred from these inception dates, and no application is submitted automatically.

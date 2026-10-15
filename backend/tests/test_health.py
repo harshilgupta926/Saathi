@@ -58,7 +58,7 @@ def test_readiness_exposes_provider_state():
 
 def test_voice_endpoint_is_provider_gated():
     response = client.post("/api/v1/voice/turn", files={"audio": ("sample.webm", b"audio", "audio/webm")}, data={"language": "hi"})
-    assert response.status_code in {422, 503, 502}
+    assert response.status_code in {415, 422, 503, 502}
 
 def test_voice_rejects_unsupported_audio_type():
     response = client.post(

@@ -31,5 +31,5 @@ def test_pmkisan_request_uses_catalogue_record():
     assert outcome.tool_name == "get_pmkisan_info"
     assert outcome.result is not None and outcome.result.ok
     assert outcome.result.data["scheme_id"] == "pm-kisan"
-    assert outcome.result.data["source_checked_on"] == "2026-10-11"
+    assert outcome.result.data["source_checked_on"] == "2026-10-15"
     assert "pmkisan.gov.in" in outcome.result.source.url

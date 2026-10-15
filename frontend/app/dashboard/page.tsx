@@ -66,6 +66,7 @@ export default function Dashboard() {
   const [message, setMessage] = useState<string>(scenarios[0].text);
   const [scenario, setScenario] = useState("mandi");
   const [result, setResult] = useState<Result | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [voiceState, setVoiceState] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export default function Dashboard() {
     setScenario(id);
     setMessage(item.text);
     setResult(null);
+    setRequestError(null);
     setVoiceState("idle");
   };
 
@@ -224,35 +226,46 @@ export default function Dashboard() {
   };
 
   const runAgent = async (requestMessage = message) => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     setLoading(true);
+    setRequestError(null);
+    setResult(null);
     setVoiceState("thinking");
     try {
       const response = await fetch("/backend/api/v1/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: requestMessage, language: "hi" }),
+        signal: controller.signal,
+        cache: "no-store",
       });
       if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
-      const body = await response.json();
-      setResult(body);
-      if (!capabilities.speech && typeof window !== "undefined" && "speechSynthesis" in window && body.reply) {
+      const body: unknown = await response.json();
+      if (!body || typeof body !== "object" || !("reply" in body) || typeof body.reply !== "string" || !body.reply.trim() || !("intent" in body) || typeof body.intent !== "string") {
+        throw new Error("Saathi returned an invalid response. Please retry.");
+      }
+      const resultBody = body as Result;
+      setResult(resultBody);
+      if (!capabilities.speech && typeof window !== "undefined" && "speechSynthesis" in window && resultBody.reply) {
         setVoiceState("speaking");
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(body.reply);
+        const utterance = new SpeechSynthesisUtterance(resultBody.reply);
         utterance.lang = "hi-IN";
         utterance.onend = () => setVoiceState("idle");
         window.speechSynthesis.speak(utterance);
       } else {
         setVoiceState("idle");
       }
-    } catch {
-      setResult({
-        reply: "Backend se connection nahi ho paaya. Saathi live result invent nahi karega — provider status check karein.",
-        intent: "general",
-        demo: true,
-      });
+    } catch (error) {
       setVoiceState("idle");
+      setRequestError(error instanceof DOMException && error.name === "AbortError"
+        ? "Saathi request timed out after 20 seconds. Check your connection and retry."
+        : error instanceof Error
+          ? error.message
+          : "Saathi could not complete this request. Check your connection and retry.");
     } finally {
+      window.clearTimeout(timeout);
       setLoading(false);
     }
   };
@@ -347,6 +360,13 @@ export default function Dashboard() {
             <button type="button" className="run-button" onClick={run} aria-busy={loading} disabled={loading || !message.trim()}>
               <Bot size={18} />{loading ? "Saathi is thinking…" : "Run this conversation"}<ArrowUpRight size={17} />
             </button>
+
+            {requestError && (
+              <div className="voice-error" role="alert" aria-live="assertive">
+                <strong>Request not completed.</strong> {requestError}
+                <button type="button" onClick={() => void runAgent(message)} disabled={loading || !message.trim()}>Retry</button>
+              </div>
+            )}
 
             {result && (
               <motion.div className="answer-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>

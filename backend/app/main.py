@@ -331,7 +331,8 @@ async def voice_turn(
     if not limiter.allow(f"voice:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
     allowed_audio_types = {"audio/webm", "audio/wav", "audio/x-wav"}
-    if audio.content_type and audio.content_type not in allowed_audio_types:
+    declared_audio_type = (audio.content_type or "").split(";", 1)[0].strip().lower()
+    if declared_audio_type not in allowed_audio_types:
         raise HTTPException(status_code=415, detail="unsupported_audio_type")
     if len(language) < 2 or len(language) > 20:
         raise HTTPException(status_code=422, detail="invalid_language")
@@ -343,6 +344,14 @@ async def voice_turn(
         raise HTTPException(status_code=422, detail="empty_audio")
     if len(raw) > max_audio_bytes:
         raise HTTPException(status_code=413, detail="audio_too_large")
+    # MIME headers are client-controlled; verify the container signature before
+    # sending uploaded bytes to speech providers.
+    is_wav = len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WAVE"
+    is_webm = len(raw) >= 4 and raw[:4] == b"\x1aE\xdf\xa3"
+    if (declared_audio_type in {"audio/wav", "audio/x-wav"} and not is_wav) or (
+        declared_audio_type == "audio/webm" and not is_webm
+    ):
+        raise HTTPException(status_code=415, detail="audio_content_mismatch")
     location = None
     if latitude is not None or longitude is not None:
         if latitude is None or longitude is None:
@@ -391,8 +400,9 @@ async def place_outbound_call(
     if not digits.isdigit() or not 8 <= len(digits) <= 15:
         raise HTTPException(status_code=422, detail="invalid_phone_number")
     if settings.demo_mode and settings.app_env.lower() != "production":
-        emit_event("call.demo", channel="exotel", realtime=payload.realtime_voice_ai)
-        return {"status": "demo", "call_id": "demo-call-accepted", "provider": "exotel", "realtime": payload.realtime_voice_ai}
+        # Never imply that a phone call was accepted when no provider was contacted.
+        emit_event("call.unavailable", channel="exotel", realtime=payload.realtime_voice_ai)
+        raise HTTPException(status_code=503, detail="telephony_unavailable_in_demo_mode")
     token = authorization.removeprefix("Bearer ").strip() if authorization else ""
     if not settings.call_api_token or not compare_digest(token, settings.call_api_token):
         raise HTTPException(status_code=401, detail="call_api_unauthorized")
