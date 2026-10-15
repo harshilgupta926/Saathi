@@ -70,10 +70,16 @@ The demo telephony fail-closed change is committed on `fix/dashboard-fail-closed
 ## Sprint note — voice upload boundary (2026-10-16 IST)
 
 - Code-level acceptance: supported MIME types are normalized for codec parameters; WAV/WebM magic bytes are checked after a bounded read; mismatches return 415 before provider invocation; regression tests cover spoofing and codec-qualified WebM acceptance.
-- Status: CODE + CI PENDING. Run #963 caught an existing voice endpoint contract test that did not include HTTP 415; this was updated to reflect the intended fail-closed malformed-media response. The follow-up exact-head run must pass. This is not a live browser/provider test and does not establish full media-parser safety. Validate actual browser-produced WebM/WAV fixtures on supported mobile browsers before release.
+- Status: CODE + EXACT-HEAD CI PASS. Run #963 caught an existing voice endpoint contract test that did not include HTTP 415; it was updated. Run [#976](https://github.com/kaustubhdua/Saathi/actions/runs/38819660836) passed all five jobs on exact candidate SHA `afc7889000571492d19efeaf5ee6361c2c6ff484`; PR #79 merged as `a30e1a9152c10e8219d8f6857d64f65eda5cd654`. This is not a live browser/provider test and does not establish full media-parser safety. Validate actual browser-produced WebM/WAV fixtures on supported mobile browsers before release.
 
 
 ## Sprint note — scheme dates (2026-10-16 IST)
 
 - Scheme API payload now carries a distinct scheme inception/effective-from field, source review date (2026-10-15 UTC / 2026-10-16 IST) and explanatory caveat. PM-KISAN uses 2018-12-01; PMFBY uses the non-date-specific season label Kharif 2016, per official source wording.
-- Status: CODE + CI PENDING. This does not establish current state-wise eligibility, crop-season deadline or a live scheme catalogue feed. Those must be confirmed against the current official notice before advising an application.
+- Status: CODE + EXACT-HEAD CI PASS on candidate SHA `afc7889000571492d19efeaf5ee6361c2c6ff484`; PR #79 merged as `a30e1a9152c10e8219d8f6857d64f65eda5cd654`. This does not establish current state-wise eligibility, crop-season deadline or a live scheme catalogue feed. Those must be confirmed against the current official notice before advising an application.
+
+
+## Merged engineering sprint — PR #79
+
+- PR #79 merged as `a30e1a9152c10e8219d8f6857d64f65eda5cd654` after exact-head CI [#976](https://github.com/kaustubhdua/Saathi/actions/runs/38819660836) passed all five jobs on the PR head.
+- CI coverage includes voice upload mismatch rejection and codec-qualified WebM handling, plus scheme effective-from metadata and freshness tests. Hosted provider/browser journeys and the deployed SHA remain unverified.
