@@ -40,7 +40,8 @@ def test_active_migrations_create_only_saathi_prefixed_tables():
 
 def test_active_migrations_do_not_reference_legacy_unprefixed_shared_tables():
     pattern = re.compile(
-        r"\b(?:create\s+table(?:\s+if\s+not\s+exists)?|alter\s+table|references|on)\s+"
+        r"\b(?:create\s+table(?:\s+if\s+not\s+exists)?|alter\s+table|drop\s+table|"
+        r"truncate(?:\s+table)?|insert\s+into|update|delete\s+from|from|join|references)\s+"
         r"(?:public\.)?(" + "|".join(sorted(UNPREFIXED_SHARED_TABLES)) + r")\b",
         flags=re.I,
     )
@@ -57,3 +58,27 @@ def test_legacy_migrations_are_quarantined_outside_active_discovery():
     legacy = ROOT / "docs" / "legacy-migrations"
     assert (legacy / "202610100001_household_memory_and_followups.sql.disabled").is_file()
     assert (legacy / "202610100002_conversation_audit_and_webhook_idempotency.sql.disabled").is_file()
+
+
+def test_namespace_guard_detects_all_sql_table_access_verbs():
+    pattern = re.compile(
+        r"\b(?:create\s+table(?:\s+if\s+not\s+exists)?|alter\s+table|drop\s+table|"
+        r"truncate(?:\s+table)?|insert\s+into|update|delete\s+from|from|join|references)\s+"
+        r"(?:public\.)?(households|household_memories|pending_tasks|volunteer_cases|conversations|telephony_webhook_events)\b",
+        flags=re.I,
+    )
+    statements = [
+        "CREATE TABLE public.households (id uuid)",
+        "ALTER TABLE households ADD COLUMN x text",
+        "INSERT INTO public.household_memories VALUES (1)",
+        "UPDATE pending_tasks SET status = 'done'",
+        "DELETE FROM public.volunteer_cases WHERE id = 1",
+        "SELECT * FROM conversations",
+        "SELECT 1 FROM saathi_households JOIN telephony_webhook_events ON true",
+        "TRUNCATE TABLE telephony_webhook_events",
+        "DROP TABLE households",
+        "SELECT * FROM saathi_households",
+    ]
+    assert [bool(pattern.search(statement)) for statement in statements] == [
+        True, True, True, True, True, True, True, True, True, False
+    ]
