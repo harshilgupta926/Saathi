@@ -1,94 +1,80 @@
 # Deployment Runbook
 
-This is the supported first deployment path for Saathi. It deliberately starts in demo-safe mode and enables live providers only after each provider has been tested. A successful cloud build is not evidence that live voice, mandi data, persistence, or telephony works.
+Deploy Saathi in demo-safe mode first. A successful build does not prove that live providers, persistence, or telephony work.
 
-## Recommended architecture
+## Architecture
 
-- **Frontend:** Vercel, from the `frontend/` directory.
-- **API:** Render, from the repository's `render.yaml` blueprint (FastAPI/Docker).
-- **Database:** Supabase is optional for the current demo; do not claim persistent memory until the Saathi schema is applied and tenant-isolation tests pass.
-- **Fastest judge demo:** Streamlit Community Cloud using `streamlit_app/app.py`; this is a separate demo shell, not the Next.js production frontend.
+- Frontend: Vercel, root directory `frontend/`.
+- API: Render Blueprint from `render.yaml`.
+- Database: optional; do not enable persistence until the intended Supabase project, schema, Auth, RLS, and isolation tests are verified.
+- Local demo: see [LOCAL_DEMO.md](LOCAL_DEMO.md).
 
-## 1. Deploy the API on Render
+## Render API
 
-1. Push/merge the release branch after CI passes.
-2. In Render, create a Blueprint from `kaustubhdua/Saathi` and select the intended branch.
-3. Confirm the service root is `backend`, runtime is Docker, and readiness path is `/health/ready`.
-4. Keep `DEMO_MODE=true` for the first deploy. This is intentional: a deploy with missing credentials must not imply that external data is live.
-5. Set `CORS_ORIGINS` to the exact frontend origin, for example `https://your-app.vercel.app` (no trailing slash; comma-separate additional trusted origins only).
-6. Deploy and verify:
-   - `/health/live` returns `{"status":"alive"}`
-   - `/health/ready` returns a capability map
-   - `/api/v1/agent` returns a clearly labelled demo response while demo mode is on.
-7. Save the public HTTPS API URL.
+1. Create the Blueprint from `kaustubhdua/Saathi`; keep the service's Dockerfile/root settings consistent with `render.yaml`.
+2. Set `CORS_ORIGINS` to the exact Vercel origin.
+3. Set `API_AUTH_TOKEN` to a strong random secret of at least 32 characters.
+4. Set `DEMO_MODE=true` for the first deployment.
+5. Set `SUPABASE_URL` and Supabase keys only after confirming the intended project and its schema. Do not use a stale URL from an example file.
+6. Verify `/health/live` and `/health/ready`.
 
-Do not set real API keys in GitHub files, commit history, or client-side `NEXT_PUBLIC_*` variables.
+## Vercel frontend
 
-## 2. Deploy the Next.js frontend on Vercel
+1. Set Root Directory to `frontend`.
+2. Set server-side `BACKEND_API_URL` to the Render HTTPS origin, without a trailing slash.
+3. Set server-side `SAATHI_API_AUTH_TOKEN` to the same value as Render's `API_AUTH_TOKEN`.
+4. Deploy and test the landing page, dashboard, same-origin `/backend/*` proxy, mobile layout, and capability labels.
 
-1. Import `kaustubhdua/Saathi` into Vercel.
-2. Set the project root directory to `frontend`.
-3. Use the Node version specified by the repository README/runtime requirements.
-4. Add server-side `BACKEND_API_URL` with the Render API origin (no trailing slash).
-5. Add server-side `SAATHI_API_AUTH_TOKEN` and set the matching `API_AUTH_TOKEN` on the API service. Use a high-entropy value of at least 32 characters; never expose it through `NEXT_PUBLIC_*`.
-6. Keep `DEMO_MODE=true` until proxy authentication and provider checks pass. The browser must call only the same-origin `/backend/*` proxy.
-7. Deploy. Add the final Vercel origin to Render `CORS_ORIGINS` only if another trusted caller requires cross-origin access.
-8. Open the deployed site and test the landing page, dashboard, a text request, mobile layout, and provider/capability labels.
+Never put server credentials in `NEXT_PUBLIC_*`, source files, client bundles, or Git history.
 
-The browser does not need a direct API URL; requests go through the same-origin `/backend/*` proxy. Provider credentials and the backend API token must remain server-side.
+## Enable only the capabilities you will demonstrate
 
-## 3. Configure live providers one at a time
+- Weather: no API key; verify live Open-Meteo output and source/retrieval time.
+- Mandi prices: `MANDI_API_KEY` and the verified `MANDI_RESOURCE_ID`; test commodity, location, market date, unit, and source.
+- Browser voice: `SARVAM_API_KEY`; test real microphone audio through transcription, tool routing, grounded answer, and Hindi audio playback.
+- LLM reasoning: `GEMINI_API_KEY` only if the chosen orchestration path needs it. Deterministic routing should remain available.
+- Phone AI: Exotel credentials, public WSS stream URL, public HTTPS callback URL, webhook secret, call token, and successful provider-specific callback-authentication tests. Keep `TELEPHONY_CALLBACK_SIGNATURE_VERIFIED=false` until the actual provider/gateway signature contract is proven. Do not guess that Exotel sends the custom Saathi HMAC header.
+- Shared production rate limiting: provision Upstash Redis and set both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on Vercel; configure the trusted client-IP header according to the host's documented proxy behavior.
+- Persistence: only set Supabase values after the correct project is active and Auth/JWT, migrations, RLS, and cross-household isolation are verified.
 
-Keep demo mode on until you have set the appropriate server-side credentials and successfully exercised each path.
+Keep `DEMO_MODE=true` until the relevant live path passes. Do not enable phone calls or persistence just to make readiness appear green.
 
-- **Weather:** Open-Meteo is used by the backend; verify a live request and inspect source/retrieval provenance.
-- **Mandi:** set `MANDI_API_KEY` and the confirmed `MANDI_RESOURCE_ID`; test commodity, district, market, observation date, price unit, and source. A retrieval timestamp is not the observation date.
-- **Browser voice:** set `SARVAM_API_KEY`; test real microphone capture, transcription, tool result, and returned audio. Record latency and provider errors.
-- **Reasoning model:** set `GEMINI_API_KEY` only if the selected orchestration path needs it; the deterministic routing baseline should remain available.
-- **Phone calls:** configure Exotel only after the API is deployed on public HTTPS/WSS and the complete call has been tested. Required values include account SID, API key/token, virtual number, public WSS stream URL, `TELEPHONY_CALLBACK_URL` set to the public HTTPS webhook endpoint, webhook secret, and a strong call API token. The callback URL is server-configured; client-provided callback URLs are ignored. Live outbound calls fail closed unless `TELEPHONY_CALLBACK_SIGNATURE_VERIFIED=true` is set after a provider-sandbox test proves the deployed callback path authenticates the exact raw request body and processes terminal states. The current HMAC endpoint requires a trusted signer; do not set this flag merely because Exotel credentials exist. See [the provider verification plan](PROVIDER_VERIFICATION.md). Do not expose call credentials to the browser.
-- **Supabase:** leave persistence disabled until migrations, Auth/JWT verification, row-level security, and cross-household tests are complete.
+## Release checks
 
-After a provider is tested, turn `DEMO_MODE=false` only when the enabled capability paths are ready for the audience. Verify that unavailable providers fail honestly rather than returning demo values as live facts.
-
-## 4. Release smoke test
-
-Run locally before release:
+From the repository root:
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
+# Activate the environment, then:
 pip install -r requirements.txt
 pytest -q
 ```
 
-Then:
+In another terminal:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run lint
 npx tsc --noEmit
 npm run build
 ```
 
-The repository currently does not include `frontend/package-lock.json`, so the current workflow uses `npm install` rather than `npm ci`. For reproducible production builds, generate and commit a reviewed lockfile, then switch CI and this runbook to `npm ci`. If a command fails, fix the failure before calling the release ready. The hosted provider tests still need to be run against the actual deployed URLs. The proxy regression suite runs in CI but does not replace browser end-to-end or live-provider verification.
+The frontend lockfile is committed; use `npm ci` for reproducible installs. CI is not a substitute for testing the deployed URLs and live provider paths.
 
-## 5. Do not announce production readiness until these gates pass
+## Do not call it production-ready until
 
-- [ ] CI is green on the exact commit to deploy.
-- [ ] The hosted frontend can reach the hosted API with the expected CORS policy.
-- [ ] Live weather and live mandi queries return correct provenance and dates.
-- [ ] Real browser voice completes STT → specialist tool → Hindi TTS.
-- [ ] If phone AI is claimed, a real Exotel call completes the WSS audio round trip and interruption test.
-- [ ] Authenticated user identity is verified server-side before storing or retrieving household data.
-- [ ] Supabase RLS and cross-household tests pass before persistence is enabled.
-- [ ] Webhook replay/idempotency survives process restarts before it is called durable.
-- [ ] Rate limiting is shared across instances before multi-instance production claims.
-- [ ] Privacy notice, consent withdrawal, retention, and deletion behavior match actual data handling.
-- [ ] The exact deployed commit and smoke-test evidence are recorded.
+- CI passes on the exact release commit.
+- Hosted frontend-to-API proxy and authentication work.
+- Live weather and mandi results show correct provenance and observation dates.
+- Real Sarvam voice completes STT → tool → Hindi TTS.
+- If phone AI is advertised, a real Exotel call completes the WSS audio round trip and interruption test.
+- Household identity is verified server-side and RLS isolation tests pass before storing household data.
+- Webhook replay protection survives restarts; rate limiting is shared across instances.
+- Privacy notice, consent withdrawal, retention, and deletion match actual behavior.
+- The exact deployed commit and smoke-test evidence are recorded.
 
 ## Rollback
 
-If the deployed build fails its smoke test, roll back to the last known-good deployment in the hosting provider, verify `/health/ready`, and repeat the smoke test. Do not change multiple providers or credentials at once while diagnosing a failure.
+If smoke tests fail, roll back to the last known-good deployment, verify readiness, and repeat the smoke test. Change one provider/configuration at a time while diagnosing failures.

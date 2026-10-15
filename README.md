@@ -76,7 +76,7 @@ Never commit `.env` files or secrets. Start from the provided `.env.example` fil
 
 ## Release roadmap
 
-See `docs/BUILD_PLAN.md` for the current gates and `docs/DEPLOYMENT_RUNBOOK.md` for staged Vercel/Render deployment, smoke tests, provider configuration, and rollback. The repository is deployable as a demo, but it is not yet honest to call every capability production-ready: live provider tests, real phone-call proof, authenticated household persistence, durable webhooks, and shared rate limiting remain release gates.
+See `docs/OWNER_ACTIONS.md` for the short list of API keys, manual account setup, and speech evaluation work; `docs/BUILD_PLAN.md` for release gates; and `docs/DEPLOYMENT_RUNBOOK.md` for deployment, smoke tests, provider configuration, and rollback. The repository is deployable as a demo, but it is not yet honest to call every capability production-ready: live provider tests, real phone-call proof, authenticated household persistence, durable webhooks, and shared rate limiting remain release gates.
 
 ## Hackathon
 

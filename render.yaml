@@ -2,7 +2,6 @@ services:
   - type: web
     name: saathi-api
     runtime: docker
-    # Use the repository-root Dockerfile. It copies backend dependencies and code.
     healthCheckPath: /health/ready
     envVars:
       - key: APP_ENV
@@ -12,10 +11,12 @@ services:
       - key: CORS_ORIGINS
         sync: false
       - key: SUPABASE_URL
-        value: https://igqgtlmnwssjaoxkkzbm.supabase.co
+        sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: API_AUTH_TOKEN
         sync: false
       - key: GEMINI_API_KEY
         sync: false
@@ -37,6 +38,10 @@ services:
         sync: false
       - key: EXOTEL_STREAM_URL
         sync: false
+      - key: TELEPHONY_CALLBACK_URL
+        sync: false
+      - key: TELEPHONY_CALLBACK_SIGNATURE_VERIFIED
+        value: "false"
       - key: TELEPHONY_WEBHOOK_SECRET
         sync: false
       - key: CALL_API_TOKEN
