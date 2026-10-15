@@ -44,3 +44,12 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 - Do not change unrelated Telegram tables, shared SECURITY DEFINER functions, or unused shared indexes as part of Saathi.
 - Keep secrets server-side; never use `NEXT_PUBLIC_*` for API/provider tokens.
 - Do not deploy Vercel before 2026-10-24.
+
+
+## Pending candidate — PR #64
+
+| Gate | Candidate status | Required next evidence |
+|---|---|---|
+| Shared production rate limit | Code and regression tests in PR #64; CI pending | All exact-head CI jobs green; verify Upstash and trusted-IP header in the deployment environment before enabling production |
+| Local limiter memory bound | Regression test added for 2,500 unique IPs and malformed-header collapse | Exact-head frontend test suite green |
+| Live shared-store behavior | Not verified | Authorized non-production Redis test with redacted evidence; no credentials in Git or chat |

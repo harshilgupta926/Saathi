@@ -1,4 +1,6 @@
 import { Buffer } from "node:buffer";
+import { isIP } from "node:net";
+import { createHmac } from "node:crypto";
 
 const POLICIES = {
   "api/v1/agent": { method: "POST", kind: "json", maxBytes: 64 * 1024, timeoutMs: 12_000 },
@@ -15,13 +17,75 @@ function errorResponse(status, detail) {
 
 function isRateLimited(request) {
   // Host must overwrite X-Real-IP. This is a per-instance safety net, not a shared limiter.
-  const ip = request.headers.get("x-real-ip") || "unknown";
+  const suppliedIp = request.headers.get("x-real-ip")?.trim();
+  const ip = suppliedIp && isIP(suppliedIp) ? suppliedIp : "unknown";
   const now = Date.now();
   let bucket = buckets.get(ip);
-  if (!bucket || now - bucket.startedAt >= WINDOW_MS) { bucket = { startedAt: now, count: 0 }; buckets.set(ip, bucket); }
+  if (!bucket || now - bucket.startedAt >= WINDOW_MS) {
+    bucket = { startedAt: now, count: 0 };
+    buckets.delete(ip);
+    buckets.set(ip, bucket);
+  }
   bucket.count += 1;
-  if (buckets.size > 2000) for (const [key, value] of buckets) if (now - value.startedAt >= WINDOW_MS) buckets.delete(key);
+  // Expire old buckets opportunistically, then evict the oldest bucket if a
+  // high-cardinality request stream still exceeds the hard memory ceiling.
+  if (buckets.size > 2000) {
+    for (const [key, value] of buckets) {
+      if (now - value.startedAt >= WINDOW_MS) buckets.delete(key);
+      if (buckets.size <= 2000) break;
+    }
+  }
+  if (buckets.size > 2000) buckets.delete(buckets.keys().next().value);
   return bucket.count > REQUEST_LIMIT;
+}
+
+function clientIp(request, env) {
+  const headerName = env.SAATHI_TRUSTED_CLIENT_IP_HEADER?.trim().toLowerCase();
+  if (!headerName || !["x-real-ip", "x-forwarded-for", "x-vercel-forwarded-for", "cf-connecting-ip"].includes(headerName)) return "unknown";
+  const value = request.headers.get(headerName)?.trim();
+  return value && !value.includes(",") && isIP(value) ? value : "unknown";
+}
+
+function sharedRateLimitConfiguration(env) {
+  const rawUrl = env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (!rawUrl || !token) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".upstash.io") || url.port || url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
+    return { url: url.origin, token };
+  } catch {
+    return null;
+  }
+}
+
+const RATE_LIMIT_SCRIPT = "local count = redis.call('INCR', KEYS[1]); if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; return count";
+
+async function allowSharedRequest(key, limit, env, fetchImpl) {
+  const configuration = sharedRateLimitConfiguration(env);
+  if (!configuration) return { error: "shared_rate_limit_not_configured" };
+  const digest = createHmac("sha256", configuration.token).update(key).digest("hex");
+  try {
+    const response = await fetchImpl(configuration.url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${configuration.token}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify(["EVAL", RATE_LIMIT_SCRIPT, "1", `saathi:rate:v1:${digest}`, String(Math.ceil(WINDOW_MS / 1000))]),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (!response.ok) return { error: "shared_rate_limit_unavailable" };
+    const payload = await response.json();
+    const count = payload?.result;
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 1) return { error: "shared_rate_limit_invalid_response" };
+    return { allowed: count <= limit };
+  } catch {
+    return { error: "shared_rate_limit_unavailable" };
+  }
 }
 
 async function readBoundedBody(request, maxBytes, timeoutMs) {
@@ -52,13 +116,22 @@ async function readBoundedBody(request, maxBytes, timeoutMs) {
   return Buffer.concat(chunks, total);
 }
 
-export async function proxyRequest(request, segments = []) {
+export async function proxyRequest(request, segments = [], options = {}) {
   const path = Array.isArray(segments) ? segments.join("/") : "";
   const method = request.method.toUpperCase();
   const readOnly = READ_ROUTES.has(path) && method === "GET";
   const policy = POLICIES[path];
   if (!readOnly && (!policy || policy.method !== method)) return errorResponse(404, "route_not_allowed");
-  if (isRateLimited(request)) return errorResponse(429, "rate_limit_exceeded");
+  const env = process.env;
+  const rateKey = `${method}:${path}:${clientIp(request, env)}`;
+  if (env.NODE_ENV === "production") {
+    if (clientIp(request, env) === "unknown") return errorResponse(503, "trusted_client_ip_not_configured");
+    const shared = await allowSharedRequest(rateKey, REQUEST_LIMIT, env, options.rateLimitFetchImpl ?? fetch);
+    if (shared.error) return errorResponse(503, shared.error);
+    if (!shared.allowed) return errorResponse(429, "rate_limit_exceeded");
+  } else if (isRateLimited(request)) {
+    return errorResponse(429, "rate_limit_exceeded");
+  }
   if (method !== "GET") {
     const origin = request.headers.get("origin");
     if (origin) {
@@ -116,3 +189,4 @@ export async function proxyRequest(request, segments = []) {
 }
 
 export function _resetRateLimitForTests() { buckets.clear(); }
+export function _rateLimitBucketCountForTests() { return buckets.size; }

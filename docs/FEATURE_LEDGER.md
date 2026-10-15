@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-15 UTC
 
-- Main baseline: `d048170180a24a36280c557150753c687139d9d7` after PR #59.
+- Main baseline at last verified checkpoint: `468a11bd7247f9a0a9121a8daa0f20a7ca42654f` after PR #63.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
 - Telephony callback lifecycle and live-call safety gate: [PR #61](https://github.com/kaustubhdua/Saathi/pull/61), merged.
@@ -42,3 +42,12 @@ Last verified: 2026-10-15 UTC
 4. Test real providers with authorized credentials and attach redacted evidence.
 5. Complete durable reminder/volunteer workflows, accessibility/performance checks, reproducible builds and rollback evidence.
 6. Deploy only after 2026-10-24 and only after the release matrix gates are satisfied.
+
+
+## Pending candidate — PR #64
+
+- [PR #64](https://github.com/kaustubhdua/Saathi/pull/64) adds a bounded 2,000-entry local development limiter and a production-only atomic Upstash Redis fixed-window limiter.
+- Production requests fail closed when the shared store is absent/unavailable, the trusted single-IP header is missing/invalid, or Redis returns an invalid counter. The Redis key contains an HMAC digest rather than a raw IP address.
+- Added regression tests for high-cardinality input, malformed IP values, invalid Upstash host/port, missing configuration, outage, response type validation, over-limit handling, and pseudonymous key construction.
+- Status: **pending CI and review**. The local environment could not clone GitHub, so no local full build is claimed. Merge only after all CI jobs pass on the exact PR head.
+- Operational dependency: provision the shared Upstash REST store and verify the hosting proxy overwrites the configured IP header before production traffic is enabled. This change intentionally fails closed until configured.
