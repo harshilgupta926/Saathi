@@ -14,6 +14,7 @@ from .provenance import SourceRecord, ToolResult
 from .schemas import Intent, LocationContext
 from .tools import DemoMandiTool, DemoWeatherTool, PMKisanSchemeTool
 from .scheme_catalog import get_scheme
+from .scheme_freshness import assess_scheme_freshness
 
 
 @dataclass(frozen=True)
@@ -51,13 +52,14 @@ def _weather_reply(data: dict[str, object], message: str) -> str:
 
 
 def _catalogue_scheme_response(scheme) -> tuple[str, ToolResult]:
+    freshness = assess_scheme_freshness(scheme.source_checked_on)
     eligibility = " ".join(scheme.eligibility_notes)
     documents = ", ".join(scheme.required_documents)
     reply = (
         f"{scheme.name}: {scheme.summary} "
         f"पात्रता: {eligibility} "
         f"संभावित दस्तावेज़: {documents}. "
-        f"स्रोत {scheme.source_checked_on} को समीक्षा किया गया था। "
+        f"कैटलॉग समीक्षा तिथि {scheme.source_checked_on} है ({freshness.status}); यह लाइव सरकारी जाँच नहीं है। "
         f"अंतिम पात्रता, राज्य/सीजन की शर्तें और समय-सीमा आधिकारिक पोर्टल पर जाँचें: "
         f"{scheme.application_url}"
     )
@@ -70,12 +72,16 @@ def _catalogue_scheme_response(scheme) -> tuple[str, ToolResult]:
             "required_documents": list(scheme.required_documents),
             "application_url": scheme.application_url,
             "source_checked_on": scheme.source_checked_on,
+            "freshness_status": freshness.status,
+            "catalogue_review_age_days": freshness.age_days,
+            "source_retrieved_live": False,
         },
         source=SourceRecord(
             name=scheme.name,
             url=scheme.source_url,
-            retrieved_at=datetime.now(timezone.utc),
-            freshness_note=f"Catalogue reviewed {scheme.source_checked_on}; verify current official rules.",
+            retrieved_at=None,
+            freshness_note=f"Catalogue review {scheme.source_checked_on} · {freshness.status}; this was not a live government lookup. Verify current official rules.",
+            freshness_status=freshness.status,
         ),
     )
     return reply, result

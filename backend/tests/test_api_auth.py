@@ -75,3 +75,28 @@ def test_local_demo_mode_does_not_require_operator_tokens(monkeypatch):
     monkeypatch.setattr(main.settings, "telephony_stream_token", None)
     _authorize_api_request(None)
     _authorize_telephony_stream(None)
+
+
+def test_readiness_fails_closed_when_production_auth_is_missing(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", False)
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    monkeypatch.setattr(main.settings, "api_auth_token", None)
+    response = TestClient(app).get("/health/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "not_ready"
+    assert response.json()["missing_requirements"] == ["api_operator_auth"]
+    assert response.json()["provider_contracts"]["api_operator_auth"] is False
+
+
+def test_readiness_allows_local_demo_without_operator_token(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "development")
+    monkeypatch.setattr(main.settings, "api_auth_token", None)
+    response = TestClient(app).get("/health/ready")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["missing_requirements"] == []

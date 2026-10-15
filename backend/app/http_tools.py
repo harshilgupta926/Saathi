@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import httpx
 
 from .provenance import SourceRecord, ToolResult
+from .market_freshness import assess_mandi_freshness
 
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -129,6 +130,7 @@ class DataGovMandiTool:
                         url=url,
                         retrieved_at=datetime.now(timezone.utc),
                         freshness_note="Government dataset queried; no matching record returned.",
+                        freshness_status="unknown",
                     ),
                 )
 
@@ -190,6 +192,7 @@ class DataGovMandiTool:
                         url=url,
                         retrieved_at=datetime.now(timezone.utc),
                         freshness_note="Government dataset returned records, but none matched the requested commodity/location strongly enough.",
+                        freshness_status="unknown",
                     ),
                 )
 
@@ -208,6 +211,34 @@ class DataGovMandiTool:
                         url=url,
                         retrieved_at=datetime.now(timezone.utc),
                         freshness_note="Multiple records tied on entity match and arrival date; no price was selected.",
+                        freshness_status="unknown",
+                    ),
+                )
+
+            freshness = assess_mandi_freshness(best_date)
+            if freshness.status != "current":
+                error_code = {
+                    "unknown": "MANDI_OBSERVATION_DATE_UNKNOWN",
+                    "future": "MANDI_OBSERVATION_DATE_INVALID",
+                    "stale": "MANDI_STALE_RECORD",
+                }.get(freshness.status, "MANDI_OBSERVATION_DATE_UNKNOWN")
+                note = {
+                    "unknown": "The matching government record has no valid arrival date; no price is presented as current.",
+                    "future": "The matching government record has a future arrival date; no price is presented as current.",
+                    "stale": "The matching government record is older than the seven-day freshness window; no price is presented as current.",
+                }.get(freshness.status, "Observation date could not be verified.")
+                return ToolResult(
+                    ok=False,
+                    error_code=error_code,
+                    retryable=False,
+                    data={"commodity": commodity, "state": state, "district": district, "market": market,
+                          "arrival_date": record.get("arrival_date") or record.get("Arrival_Date") or record.get("arrival date")},
+                    source=SourceRecord(
+                        name="Government OGD / AGMARKNET",
+                        url=url,
+                        retrieved_at=datetime.now(timezone.utc),
+                        freshness_note=note,
+                        freshness_status=freshness.status,
                     ),
                 )
 
@@ -242,6 +273,7 @@ class DataGovMandiTool:
                         url=url,
                         retrieved_at=datetime.now(timezone.utc),
                         freshness_note="Government dataset returned a record without a usable modal price.",
+                        freshness_status="unknown",
                     ),
                 )
 
@@ -252,7 +284,7 @@ class DataGovMandiTool:
                     "market": field("market", "Market") or market or district or state,
                     "district": field("district", "District") or district,
                     "state": field("state", "State") or state,
-                    "arrival_date": field("arrival_date", "Arrival_Date"),
+                    "arrival_date": field("arrival_date", "Arrival_Date", "arrival date"),
                     "min_price": minimum,
                     "modal_price": modal,
                     "max_price": maximum,
@@ -263,7 +295,8 @@ class DataGovMandiTool:
                     name="Government OGD / AGMARKNET",
                     url=url,
                     retrieved_at=datetime.now(timezone.utc),
-                    freshness_note="LIVE government market-price response; exact market/date are taken from the returned record.",
+                    freshness_note="LIVE government market-price response; selected record observation date is within the seven-day display window.",
+                    freshness_status="live",
                 ),
             )
         except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:

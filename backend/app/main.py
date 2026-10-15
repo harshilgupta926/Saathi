@@ -99,11 +99,14 @@ def readiness() -> dict[str, object]:
         (settings.bhashini_api_key and settings.bhashini_stt_endpoint and settings.bhashini_tts_endpoint)
         or settings.sarvam_api_key
     )
-    # The deterministic text agent and Open-Meteo path do not depend on
-    # optional LLM/telephony/mandi providers. Readiness therefore reflects
-    # actual capability availability instead of requiring every integration.
+    # A running process is not necessarily usable. Production requires the
+    # server-side API token injected by the same-origin frontend proxy.
+    auth_required = not (settings.demo_mode and settings.app_env.lower() != "production")
+    api_auth_configured = bool(settings.api_auth_token)
+    missing_requirements = ["api_operator_auth"] if auth_required and not api_auth_configured else []
     return {
-        "status": "ready",
+        "status": "not_ready" if missing_requirements else "ready",
+        "missing_requirements": missing_requirements,
         "demo_mode": settings.demo_mode,
         "provider_contracts": {
             "core_agent": True,
@@ -114,7 +117,7 @@ def readiness() -> dict[str, object]:
             "speech": speech,
             "weather": True,
             "documents": bool(settings.sarvam_api_key),
-            "api_operator_auth": bool(settings.api_auth_token),
+            "api_operator_auth": api_auth_configured,
             "telephony_stream_auth": bool(settings.telephony_stream_token),
         },
     }
@@ -143,8 +146,9 @@ def _source(outcome):
         return {
             "name": outcome.result.source.name,
             "url": outcome.result.source.url,
-            "retrieved_at": outcome.result.source.retrieved_at.isoformat(),
+            "retrieved_at": outcome.result.source.retrieved_at.isoformat() if outcome.result.source.retrieved_at else None,
             "freshness_note": outcome.result.source.freshness_note,
+            "freshness_status": outcome.result.source.freshness_status,
         }
     return None
 
@@ -155,8 +159,9 @@ def _sources(outcome):
             items.append({
                 "name": result.source.name,
                 "url": result.source.url,
-                "retrieved_at": result.source.retrieved_at.isoformat(),
+                "retrieved_at": result.source.retrieved_at.isoformat() if result.source.retrieved_at else None,
                 "freshness_note": result.source.freshness_note,
+                "freshness_status": result.source.freshness_status,
             })
     return items
 

@@ -29,9 +29,11 @@ Do not set real API keys in GitHub files, commit history, or client-side `NEXT_P
 1. Import `kaustubhdua/Saathi` into Vercel.
 2. Set the project root directory to `frontend`.
 3. Use the Node version specified by the repository README/runtime requirements.
-4. Add `NEXT_PUBLIC_API_URL` with the Render API origin, e.g. `https://your-api.onrender.com` (no trailing slash).
-5. Deploy. Add the final Vercel origin to Render's `CORS_ORIGINS`, then redeploy the API if changed.
-6. Open the deployed site and test the landing page, dashboard, a text request, mobile layout, and the provider/capability labels.
+4. Add server-side `BACKEND_API_URL` with the Render API origin (no trailing slash).
+5. Add server-side `SAATHI_API_AUTH_TOKEN` and set the matching `API_AUTH_TOKEN` on the API service. Use a high-entropy value of at least 32 characters; never expose it through `NEXT_PUBLIC_*`.
+6. Keep `DEMO_MODE=true` until proxy authentication and provider checks pass. The browser must call only the same-origin `/backend/*` proxy.
+7. Deploy. Add the final Vercel origin to Render `CORS_ORIGINS` only if another trusted caller requires cross-origin access.
+8. Open the deployed site and test the landing page, dashboard, a text request, mobile layout, and provider/capability labels.
 
 The public browser variable `NEXT_PUBLIC_API_URL` is an endpoint, not a secret. Provider credentials must remain server-side.
 
@@ -71,7 +73,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-The repository currently does not include `frontend/package-lock.json`, so the current workflow uses `npm install` rather than `npm ci`. For reproducible production builds, generate and commit a reviewed lockfile, then switch CI and this runbook to `npm ci`. If a command fails, fix the failure before calling the release ready. The hosted provider tests still need to be run against the actual deployed URLs.
+The repository currently does not include `frontend/package-lock.json`, so the current workflow uses `npm install` rather than `npm ci`. For reproducible production builds, generate and commit a reviewed lockfile, then switch CI and this runbook to `npm ci`. If a command fails, fix the failure before calling the release ready. The hosted provider tests still need to be run against the actual deployed URLs. The proxy regression suite runs in CI but does not replace browser end-to-end or live-provider verification.
 
 ## 5. Do not announce production readiness until these gates pass
 

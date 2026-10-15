@@ -58,7 +58,7 @@ def test_mandi_adapter_maps_government_record(monkeypatch):
             "district": "Sonipat",
             "market": "Sonipat",
             "commodity": "Wheat",
-            "arrival_date": "06/10/2026",
+            "arrival_date": "14/10/2026",
             "min_price": "2100",
             "modal_price": "2250",
             "max_price": "2325",
@@ -70,7 +70,7 @@ def test_mandi_adapter_maps_government_record(monkeypatch):
     ))
     assert result.ok is True
     assert result.data["modal_price"] == 2250
-    assert result.data["arrival_date"] == "06/10/2026"
+    assert result.data["arrival_date"] == "14/10/2026"
     assert result.data["market"] == "Sonipat"
     assert result.source.name == "Government OGD / AGMARKNET"
 
@@ -179,3 +179,24 @@ def test_exotel_voice_ai_requires_secure_stream_url():
         assert str(exc) == "Exotel Voice AI StreamUrl must use wss://"
     else:
         raise AssertionError("insecure stream URL was accepted")
+
+
+def test_mandi_adapter_rejects_stale_observation(monkeypatch):
+    FakeClient.response = FakeResponse({
+        "records": [{
+            "state": "Haryana",
+            "district": "Sonipat",
+            "market": "Sonipat",
+            "commodity": "Wheat",
+            "arrival_date": "01/10/2026",
+            "modal_price": "2250",
+        }]
+    })
+    monkeypatch.setattr(http_tools.httpx, "AsyncClient", FakeClient)
+    result = asyncio.run(http_tools.DataGovMandiTool(api_key="key", resource_id="resource").price(
+        commodity="Wheat", state="Haryana", district="Sonipat"
+    ))
+    assert result.ok is False
+    assert result.error_code == "MANDI_STALE_RECORD"
+    assert result.source is not None
+    assert result.source.freshness_status == "stale"

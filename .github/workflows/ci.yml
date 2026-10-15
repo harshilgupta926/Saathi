@@ -61,6 +61,7 @@ jobs:
           cache-dependency-path: frontend/package.json
       - run: npm install
       - run: npm run lint
+      - run: node --test tests/backend-proxy.test.mjs
       - run: npx tsc --noEmit
       - run: npm run build
       - name: Smoke-test the built local dashboard

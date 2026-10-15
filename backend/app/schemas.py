@@ -21,8 +21,9 @@ class ConversationRequest(BaseModel):
 class SourceResponse(BaseModel):
     name: str
     url: str
-    retrieved_at: str
+    retrieved_at: str | None = None
     freshness_note: str | None = None
+    freshness_status: str | None = None
 
 
 class ConversationResponse(BaseModel):

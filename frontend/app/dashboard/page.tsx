@@ -5,16 +5,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowLeft, ArrowUpRight, Bot, CheckCircle2, ChevronDown,
+  AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CheckCircle2,
   CloudRain, Languages, MapPin, Mic2, PhoneCall,
-  ShieldCheck, Sparkles, UserRound, Volume2, Wheat, X, Zap, type LucideIcon
+  ShieldCheck, Sparkles, UserRound, Volume2, Wheat, Zap, type LucideIcon
 } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const DEMO_LOCATION = { latitude: 28.9931, longitude: 77.0151, label: "Sonipat district · demo context" };
 
-type Source = { name: string; url: string; retrieved_at: string; freshness_note?: string | null };
-type Evidence = { name: string; url: string; retrieved_at: string; freshness_note?: string | null };
+type Source = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
+type Evidence = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
 type ReadyCapabilities = { core_agent?: boolean; telephony?: boolean; telephony_realtime?: boolean; reasoning?: boolean; mandi?: boolean; speech?: boolean; weather?: boolean; documents?: boolean };
 
 type BrowserSpeechRecognition = {
@@ -74,7 +72,6 @@ export default function Dashboard() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const [memoryConsent, setMemoryConsent] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
   const [apiReady, setApiReady] = useState(false);
   const [capabilities, setCapabilities] = useState<ReadyCapabilities>({});
@@ -82,7 +79,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API}/health/ready`, { signal: controller.signal })
+    fetch("/backend/health/ready", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("health check failed");
         const body = await response.json();
@@ -198,11 +195,7 @@ export default function Dashboard() {
           const form = new FormData();
           form.append("audio", blob, "caller.webm");
           form.append("language", "hi");
-          form.append("household_id", "demo-household");
-          form.append("latitude", String(DEMO_LOCATION.latitude));
-          form.append("longitude", String(DEMO_LOCATION.longitude));
-          form.append("location_label", DEMO_LOCATION.label);
-          const response = await fetch(`${API}/api/v1/voice/turn`, { method: "POST", body: form });
+          const response = await fetch("/backend/api/v1/voice/turn", { method: "POST", body: form });
           const body = await response.json();
           if (!response.ok) throw new Error(body.detail || `Voice request failed: ${response.status}`);
           setMessage(body.transcript || message);
@@ -234,10 +227,10 @@ export default function Dashboard() {
     setLoading(true);
     setVoiceState("thinking");
     try {
-      const response = await fetch(`${API}/api/v1/agent`, {
+      const response = await fetch("/backend/api/v1/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: requestMessage, language: "hi", household_id: "demo-household", location: DEMO_LOCATION }),
+        body: JSON.stringify({ message: requestMessage, language: "hi" }),
       });
       if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
       const body = await response.json();
@@ -285,7 +278,7 @@ export default function Dashboard() {
         <section className="status-grid">
           <article className="metric-card accent">
             <div className="metric-icon"><PhoneCall size={18} /></div>
-            <div><small>VOICE CHANNEL</small><strong>Missed call → Saathi</strong><p>Provider-gated · Exotel adapter ready</p></div>
+            <div><small>VOICE CHANNEL</small><strong>Phone channel</strong><p>Exotel adapter present · live call not verified</p></div>
           </article>
           <article className="metric-card">
             <div className="metric-icon"><Bot size={18} /></div>
@@ -306,7 +299,7 @@ export default function Dashboard() {
 
             <div className="caller-context">
               <div className={`caller-avatar ${voiceState !== "idle" ? "pulse" : ""}`}><Mic2 size={23} /></div>
-              <div><strong>Unknown caller</strong><span>Hindi · Sonipat district</span></div>
+              <div><strong>Demo session</strong><span>Hindi · location not provided</span></div>
               <span className={`call-state ${voiceState !== "idle" ? "busy" : ""}`}>{voiceState.toUpperCase()}</span>
             </div>
 
@@ -324,7 +317,7 @@ export default function Dashboard() {
               <button type="button" className={`voice-button ${voiceState === "listening" ? "active" : ""}`} onClick={toggleVoice} aria-label="Toggle microphone" disabled={loading || voiceState === "speaking"}>
                 <Mic2 size={18} /> {voiceState === "listening" ? "Stop recording" : "Start voice"}
               </button>
-              <span><Volume2 size={13} /> {capabilities.speech ? "Real mic → provider STT → agent → provider TTS" : "Browser voice preview · provider STT/TTS not configured"}</span>
+              <span><Volume2 size={13} /> {capabilities.speech ? "Configured provider path · live round trip still requires verification" : "Browser voice preview · provider STT/TTS not configured"}</span>
             </div>
 
             {voiceError && <div className="voice-error" role="alert" aria-live="assertive">{voiceError}</div>}
@@ -338,7 +331,7 @@ export default function Dashboard() {
                 <div className="answer-label"><span><Bot size={15} /> SAATHI RESPONSE</span><b>{result.intent}</b></div>
                 <p>{result.reply}</p>
                 {(result.sources?.length ? result.sources : result.source ? [result.source] : []).map((source, index) => (
-                  <div className="source-row" key={`${source.name}-${source.retrieved_at}-${index}`}><CheckCircle2 size={15} /><div><strong>{source.name}</strong><span>{source.freshness_note || "Provider result retrieved with timestamp."}</span><small>Retrieved · {new Date(source.retrieved_at).toLocaleString()}</small>{source.url && <a href={source.url} target="_blank" rel="noreferrer">View source ↗</a>}</div></div>
+                  <div className="source-row" key={`${source.name}-${source.retrieved_at || source.freshness_status || index}-${index}`}>{source.freshness_status === "stale" || source.freshness_status === "unknown" || source.freshness_status === "future" ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}<div><strong>{source.name}</strong><span>{source.freshness_note || "Provider result retrieved with timestamp."}</span><small>{source.retrieved_at ? `Retrieved · ${new Date(source.retrieved_at).toLocaleString()}` : `No live retrieval timestamp · catalogue review status: ${source.freshness_status || "unknown"}`}</small>{source.url && <a href={source.url} target="_blank" rel="noreferrer">View source ↗</a>}</div></div>
                 ))}
                 {!result.sources?.length && !result.source && (
                   <div className="source-row warning"><ShieldCheck size={15} /><div><strong>No live source attached</strong><span>Saathi will not present an unverified answer as live fact.</span></div></div>
@@ -368,15 +361,15 @@ export default function Dashboard() {
         <section className="context-grid">
           <article className="context-card">
             <div className="context-title"><div><span className="panel-kicker">FIELD CONTEXT</span><h3>Where should Saathi look?</h3></div><MapPin size={18} /></div>
-            <div className="location-row"><div className="map-placeholder"><MapPin size={23} /><span>FIELD CONTEXT</span></div><div><strong>Sonipat district</strong><p>Explicit demo context is passed to the API. No browser GPS is claimed.</p><span className="source-status"><i /> Location source · contextual</span></div></div>
+            <div className="location-row"><div className="map-placeholder"><MapPin size={23} /><span>FIELD CONTEXT</span></div><div><strong>Location not set</strong><p>Location-specific answers require a verified location context. Saathi does not infer your location.</p><span className="source-status"><i /> Location source · not provided</span></div></div>
           </article>
 
           <article className="context-card">
             <div className="context-title"><div><span className="panel-kicker">SOURCE HEALTH</span><h3>What can we trust?</h3></div><CheckCircle2 size={18} /></div>
             <div className="health-list">
               <div><span><Wheat size={14} /> Mandi tool</span><b className={capabilities.mandi ? "live-badge" : "demo-badge"}>{demoMode ? "DEMO MODE" : capabilities.mandi ? "LIVE OGD" : "NOT CONFIGURED"}</b></div>
-              <div><span><CloudRain size={14} /> Weather tool</span><b className="live-badge">Open-Meteo adapter</b></div>
-              <div><span><ShieldCheck size={14} /> Scheme rules</span><b className="live-badge">Deterministic</b></div>
+              <div><span><CloudRain size={14} /> Weather tool</span><b className={demoMode ? "demo-badge" : "live-badge"}>{demoMode ? "DEMO MODE" : "Open-Meteo configured"}</b></div>
+              <div><span><ShieldCheck size={14} /> Scheme rules</span><b className="demo-badge">STATIC CATALOGUE</b></div>
             </div>
           </article>
         </section>
@@ -384,20 +377,13 @@ export default function Dashboard() {
         <section className="consent-card" aria-labelledby="consent-title">
           <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD MEMORY</span><h3 id="consent-title">Remember only with permission.</h3></div><ShieldCheck size={18} /></div>
           <p className="consent-intro">Saathi separates useful continuity from silent surveillance. Household memory remains a prototype-only capability until server-side consent persistence is enabled.</p>
-          <div className="consent-options">
-            <button type="button" className={`consent-option ${memoryConsent ? "on" : ""}`} aria-pressed={memoryConsent} onClick={() => setMemoryConsent((value) => !value)}>
-              <span className="toggle">{memoryConsent ? <CheckCircle2 size={14} /> : <X size={14} />}</span>
-              <div><strong>Household memory</strong><small>{memoryConsent ? "Consented for this demo household" : "Not enabled"}</small></div>
-              <ChevronDown size={14} />
-            </button>
-          </div>
-          <div className="consent-note"><ShieldCheck size={14} /> Household memory is intentionally not active in this prototype. Consent toggles are demo-only and do not persist data. In production, consent, opt-out, quiet hours and deletion must be persisted server-side.</div>
+          <div className="consent-note"><ShieldCheck size={14} /> Household memory is disabled in this prototype. No consent is being collected or stored here; persistent memory remains unavailable until authenticated identity, server-side consent and deletion workflows are verified.</div>
         </section>
 
         <section className="fallback-card" aria-labelledby="fallback-title">
           <div className="fallback-icon"><UserRound size={22} /></div>
-          <div className="fallback-copy"><span className="panel-kicker">HUMAN FALLBACK</span><h3 id="fallback-title">When confidence drops, hand the call to a person.</h3><p>Saathi can package the conversation context for a volunteer instead of forcing the model to answer beyond its safety or confidence boundary.</p></div>
-          <div className="fallback-status"><span><i /> Ready</span><small>Policy threshold · 0.65</small></div>
+          <div className="fallback-copy"><span className="panel-kicker">HUMAN FALLBACK</span><h3 id="fallback-title">Human escalation policy</h3><p>Explicit requests and low-confidence/provider failures can be flagged in the response. A persistent volunteer queue, assignment and delivery workflow is not connected in this prototype.</p></div>
+          <div className="fallback-status"><span><i /> Policy only</span><small>Volunteer queue · not connected</small></div>
         </section>
 
         <section className="flow-strip">

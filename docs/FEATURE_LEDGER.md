@@ -1,8 +1,9 @@
 # Saathi Release Feature Ledger
 
-Last verified: 2026-10-14 UTC
-Working branch: `fix/nihdhoom-saathi-persistence`
-Pull request: https://github.com/kaustubhdua/Saathi/pull/56
+Last verified: 2026-10-15 UTC
+Working branch: `fix/p0-api-proxy-readiness-2026-10-15`
+P0/P1 pull request: https://github.com/kaustubhdua/Saathi/pull/57
+Migration safety/index pull request: https://github.com/kaustubhdua/Saathi/pull/58 (draft; do not merge until other environments are reconciled)
 Deployment policy: no Vercel production deployment before 2026-10-24.
 
 Statuses are evidence-based. Database schema readiness does not imply that a user-facing workflow is integrated.
@@ -18,9 +19,14 @@ Statuses are evidence-based. Database schema readiness does not imply that a use
 - **Webhook idempotency contract:** the webhook adapter calls `saathi_record_webhook_event`, which atomically claims the event and inserts its `saathi_call_events` ledger row in one transaction. Synthetic SQL verification confirmed first delivery returns new, replay returns duplicate, and both rows are created together.
 - **Outbound call safety/persistence:** live calls now require the persisted outbound-consent record for a valid household UUID; a `saathi_calls` row is created before the provider is called, then provider acceptance is recorded. Provider failures mark the row failed; if post-acceptance tracking fails, the API reports `tracking_status: degraded` rather than claiming the call failed.
 - **Local runtime smoke harness:** CI starts FastAPI on localhost and checks health, readiness, scheme catalogue and a Hindi conversation; CI also starts the built Next.js app and checks `/dashboard`.
-- **Latest full CI:** run 754 passed all five jobs on commit `36cb94cef0679deb3284f25e88491de58d6be2cd`, including 144 backend tests, local FastAPI health/readiness/catalogue/conversation smoke, frontend lint/type/build and localhost dashboard smoke, dependency audits, Streamlit smoke and Docker build.
+- **Latest complete CI before the most recent UI-label-only commit:** run 766 passed all five jobs on PR #57 head `f2a9c9965831b91f2304d52eefbef67a8b8ac919`, including backend pytest/API smoke, frontend lint/TypeScript/build/proxy tests/dashboard smoke, dependency audits, Streamlit smoke and Docker build. Run 767 validates subsequent copy-only UI changes and was in progress at ledger update time.
 
 ## PARTIAL — implementation exists, integration remains
+
+- **Frontend API security (PR #57):** dashboard requests use the same-origin allowlisted server proxy; server-side token injection is required in production; browser-supplied household IDs are rejected; readiness fails closed when production auth is missing. This is pending merge and still does not implement end-user login or household ownership.
+- **Scheme freshness (PR #57):** static catalogue responses have no live retrieval timestamp and carry reviewed/stale/unknown status; current eligibility and deadlines still require official-portal verification.
+- **Mandi freshness (PR #57):** prices with missing/invalid/future arrival dates or observations older than seven days are withheld; live OGD resource/market correctness still requires authorized provider testing.
+- **Migration reconciliation (PR #58):** two unprefixed legacy migrations are quarantined outside active discovery, a namespace regression test is added, and a Saathi-only three-index migration is proposed. CI run 759 passed all five jobs. Do not merge/apply until all environments are checked and local/remote migration history is reconciled.
 
 - **Conversation metadata:** backend adapter is wired to the namespaced table; real PostgREST writes require the server-side Nihdhoom secret to be configured in the local/hosted API environment. Unit tests use a mocked HTTP client.
 - **Durable webhook deduplication:** backend adapter is wired to the namespaced event ledger. Real signed-provider webhook delivery has not been exercised with provider credentials.
@@ -43,6 +49,9 @@ Supabase security advisors no longer report RLS-enabled/no-policy findings for S
 
 ## Next actions
 
-1. Keep the pull request open and deployment deferred until 24 October; rerun CI after any further code changes.
-2. Wire consent/task repositories behind authenticated server-side household ownership and add tests for cross-household denial and consent revocation.
-3. Correlate signed provider callbacks to `saathi_calls`, update terminal call states idempotently, and verify with provider sandbox credentials before the 24 October deployment window.
+1. Keep PR #57 open until the latest exact-head CI is green and the change is reviewed; keep PR #58 draft until other deployment environments and migration histories are reconciled.
+2. Wire consent/task repositories behind verified user identity and server-side household ownership; test cross-household denial, consent grant/revocation, memory deletion, retention and task authorization.
+3. Run real Open-Meteo/OGD and Sarvam provider journeys with approved credentials; verify provenance, date selection, STT → tool → TTS, failure states and measured latency.
+4. Correlate signed provider callbacks to `saathi_calls`, update terminal call states idempotently, and prove the public WSS round trip if phone AI will be advertised.
+5. Add a reviewed frontend lockfile and `npm ci`; finish browser/mobile, keyboard/screen-reader/reduced-motion, Lighthouse/Core Web Vitals and release rollback evidence.
+6. Keep Vercel deployment/configuration deferred until 2026-10-24; then verify the exact production URL, deployed SHA, configuration, smoke tests and rollback procedure.
