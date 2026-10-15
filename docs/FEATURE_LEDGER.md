@@ -5,7 +5,7 @@ Last verified: 2026-10-15 UTC
 - Main baseline: `d048170180a24a36280c557150753c687139d9d7` after PR #59.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
-- Telephony callback lifecycle and live-call safety gate: [PR #61](https://github.com/kaustubhdua/Saathi/pull/61), pending CI.
+- Telephony callback lifecycle and live-call safety gate: [PR #61](https://github.com/kaustubhdua/Saathi/pull/61), merged.
 - Migration quarantine/index proposal: [PR #58](https://github.com/kaustubhdua/Saathi/pull/58), draft; do not merge until all environments' migration histories are reconciled.
 - [Release acceptance matrix](RELEASE_ACCEPTANCE_MATRIX.md)
 - [Provider verification plan](PROVIDER_VERIFICATION.md)
@@ -20,6 +20,7 @@ Last verified: 2026-10-15 UTC
 
 ## Partial
 
+- **Dashboard accessibility (PR #63):** scenario tabs use roving tabindex with arrow/Home/End keyboard navigation; API/voice/answer state announcements use live regions; microphone controls expose pressed state; the UI no longer claims consent was collected. This is a code-level contract check, not a full WCAG 2.2 AA audit.
 - Frontend API calls use a same-origin allowlisted proxy; the server injects the API token and production readiness fails closed without operator auth.
 - Scheme catalogue data carries reviewed/stale/unknown freshness rather than a false live retrieval timestamp. Mandi records with invalid, future or over-seven-day observations are withheld from current-price claims.
 - Consent and task repositories and Saathi schema protections exist, but verified user identity, consent UI/API, household memory/tasks/case workflows and cross-household integration tests remain incomplete.

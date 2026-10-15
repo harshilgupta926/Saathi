@@ -266,11 +266,11 @@ export default function Dashboard() {
           <div>
             <div className="eyebrow"><span className="eyebrow-line" /> SAATHI</div>
             <h1>Ask Saathi. <em>Get grounded help.</em></h1>
-            <p>Use voice or text to ask a real question. Saathi interprets it, checks the right specialist source, and shows the evidence behind the response.</p>
+            <p>Use voice or text to ask a question. Saathi routes the request, shows available source evidence, and makes unavailable integrations explicit.</p>
           </div>
           <div className="header-badges">
-            <span><Zap size={13} /> {apiOnline ? (apiReady ? "API ready" : "API online") : "API offline"}</span>
-            <span><ShieldCheck size={13} /> Consent-led</span>
+            <span role="status" aria-live="polite"><Zap size={13} /> {apiOnline ? (apiReady ? "API ready" : "API online") : "API offline"}</span>
+            <span><ShieldCheck size={13} /> Household memory off</span>
             <span><Languages size={13} /> Hindi-first</span>
           </div>
         </header>
@@ -300,12 +300,34 @@ export default function Dashboard() {
             <div className="caller-context">
               <div className={`caller-avatar ${voiceState !== "idle" ? "pulse" : ""}`}><Mic2 size={23} /></div>
               <div><strong>Demo session</strong><span>Hindi · location not provided</span></div>
-              <span className={`call-state ${voiceState !== "idle" ? "busy" : ""}`}>{voiceState.toUpperCase()}</span>
+              <span className={`call-state ${voiceState !== "idle" ? "busy" : ""}`} role="status" aria-live="polite">{voiceState.toUpperCase()}</span>
             </div>
 
             <div className="scenario-tabs" role="tablist" aria-label="Question types">
               {scenarios.map(({ id, label, icon: Icon }) => (
-                <button type="button" key={id} role="tab" aria-selected={scenario === id} className={scenario === id ? "selected" : ""} onClick={() => selectScenario(id)}>
+                <button
+                  type="button"
+                  key={id}
+                  role="tab"
+                  data-scenario-tab={id}
+                  tabIndex={scenario === id ? 0 : -1}
+                  aria-selected={scenario === id}
+                  className={scenario === id ? "selected" : ""}
+                  onClick={() => selectScenario(id)}
+                  onKeyDown={(event) => {
+                    const current = scenarios.findIndex((item) => item.id === id);
+                    let next = current;
+                    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (current + 1) % scenarios.length;
+                    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (current - 1 + scenarios.length) % scenarios.length;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = scenarios.length - 1;
+                    else return;
+                    event.preventDefault();
+                    const nextId = scenarios[next].id;
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+                    selectScenario(nextId);
+                  }}
+                >
                   <Icon size={14} />{label}
                 </button>
               ))}
@@ -314,7 +336,7 @@ export default function Dashboard() {
             <textarea value={message} onChange={(event) => setMessage(event.target.value)} aria-label="Caller request" />
 
             <div className="voice-controls">
-              <button type="button" className={`voice-button ${voiceState === "listening" ? "active" : ""}`} onClick={toggleVoice} aria-label="Toggle microphone" disabled={loading || voiceState === "speaking"}>
+              <button type="button" className={`voice-button ${voiceState === "listening" ? "active" : ""}`} onClick={toggleVoice} aria-label={voiceState === "listening" ? "Stop microphone recording" : "Start voice input"} aria-pressed={voiceState === "listening"} disabled={loading || voiceState === "speaking"}>
                 <Mic2 size={18} /> {voiceState === "listening" ? "Stop recording" : "Start voice"}
               </button>
               <span><Volume2 size={13} /> {capabilities.speech ? "Configured provider path · live round trip still requires verification" : "Browser voice preview · provider STT/TTS not configured"}</span>
@@ -322,14 +344,14 @@ export default function Dashboard() {
 
             {voiceError && <div className="voice-error" role="alert" aria-live="assertive">{voiceError}</div>}
 
-            <button type="button" className="run-button" onClick={run} disabled={loading || !message.trim()}>
+            <button type="button" className="run-button" onClick={run} aria-busy={loading} disabled={loading || !message.trim()}>
               <Bot size={18} />{loading ? "Saathi is thinking…" : "Run this conversation"}<ArrowUpRight size={17} />
             </button>
 
             {result && (
               <motion.div className="answer-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                 <div className="answer-label"><span><Bot size={15} /> SAATHI RESPONSE</span><b>{result.intent}</b></div>
-                <p>{result.reply}</p>
+                <p aria-live="polite" aria-atomic="true">{result.reply}</p>
                 {(result.sources?.length ? result.sources : result.source ? [result.source] : []).map((source, index) => (
                   <div className="source-row" key={`${source.name}-${source.retrieved_at || source.freshness_status || index}-${index}`}>{source.freshness_status === "stale" || source.freshness_status === "unknown" || source.freshness_status === "future" ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}<div><strong>{source.name}</strong><span>{source.freshness_note || "Provider result retrieved with timestamp."}</span><small>{source.retrieved_at ? `Retrieved · ${new Date(source.retrieved_at).toLocaleString()}` : `No live retrieval timestamp · catalogue review status: ${source.freshness_status || "unknown"}`}</small>{source.url && <a href={source.url} target="_blank" rel="noreferrer">View source ↗</a>}</div></div>
                 ))}
