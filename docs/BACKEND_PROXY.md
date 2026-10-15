@@ -21,3 +21,7 @@ The dashboard uses same-origin `/backend/*` routes. The Next.js Node route forwa
 ## Verification
 
 CI runs `node --test tests/backend-proxy.test.mjs` plus lint, TypeScript and the Next.js build. These tests stub the upstream; they do not prove live provider or deployment behavior.
+
+## Household identity fail-closed behavior
+
+The backend rejects a client-supplied household identifier on text and voice interaction routes outside local demo mode. A household UUID is not an identity credential. Until a verified end-user identity provider and identity-to-household ownership check are integrated, production requests must omit household IDs; household-specific memory, tasks and consent APIs must not be exposed through the public proxy. This intentionally blocks household-personalized production workflows rather than silently trusting a client-supplied UUID.

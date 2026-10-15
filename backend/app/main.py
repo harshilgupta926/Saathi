@@ -132,6 +132,12 @@ def _authorize_api_request(supplied_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="api_authentication_required")
 
 
+def _authorize_household_context(household_id: str | None) -> None:
+    """Until a verified end-user identity is wired, production cannot trust client household IDs."""
+    if household_id and not (settings.demo_mode and settings.app_env.lower() != "production"):
+        raise HTTPException(status_code=403, detail="verified_household_identity_required")
+
+
 def _authorize_telephony_stream(supplied_token: str | None) -> None:
     if settings.demo_mode and settings.app_env.lower() != "production":
         return
@@ -198,6 +204,7 @@ async def conversation(
     x_saathi_api_key: str | None = Header(default=None),
 ) -> ConversationResponse:
     _authorize_api_request(x_saathi_api_key)
+    _authorize_household_context(payload.household_id)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(key):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -239,6 +246,7 @@ async def agent(
     x_saathi_api_key: str | None = Header(default=None),
 ) -> ConversationResponse:
     _authorize_api_request(x_saathi_api_key)
+    _authorize_household_context(payload.household_id)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"agent:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -285,6 +293,7 @@ async def voice_turn(
     location_label: str | None = Form(None),
 ) -> VoiceTurnResponse:
     _authorize_api_request(x_saathi_api_key)
+    _authorize_household_context(household_id)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"voice:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")

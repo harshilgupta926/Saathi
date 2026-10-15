@@ -100,3 +100,30 @@ def test_readiness_allows_local_demo_without_operator_token(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert response.json()["missing_requirements"] == []
+
+
+def test_agent_rejects_unverified_household_id_in_production(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", False)
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    monkeypatch.setattr(main.settings, "api_auth_token", "test-secret")
+    response = TestClient(app).post(
+        "/api/v1/agent",
+        json={"message": "नमस्ते", "language": "hi", "household_id": "00000000-0000-4000-8000-000000000001"},
+        headers={"X-Saathi-API-Key": "test-secret"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "verified_household_identity_required"
+
+
+def test_household_context_is_allowed_only_for_local_demo(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "development")
+    main._authorize_household_context("demo-household")
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    with pytest.raises(HTTPException) as exc:
+        main._authorize_household_context("demo-household")
+    assert exc.value.status_code == 403
