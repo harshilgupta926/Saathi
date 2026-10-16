@@ -59,10 +59,11 @@ Then open `http://localhost:3000/dashboard`.
 The base Compose demo keeps the deterministic demo path lightweight. To run the actual local Ollama model as well, use the override file:
 
 ```bash
+export SAATHI_API_AUTH_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 docker compose -f docker-compose.yml -f docker-compose.local-ai.yml up --build
 ```
 
-This starts the pinned Ollama container, pulls `qwen2.5:7b` into the persistent `ollama-data` volume, and points the backend at the internal Ollama service. The first run downloads several gigabytes and needs sufficient disk space and RAM; do not use this mode on a low-memory host. The Ollama port is not published to the host by this Compose override. If model pulling fails, Compose does not start the backend in this full-local mode rather than silently using a hosted provider.
+This starts the pinned Ollama container, pulls `qwen2.5:7b` into the persistent `ollama-data` volume, sets `DEMO_MODE=false` and `LLM_PROVIDER=ollama`, and points the backend at the internal Ollama service. The generated `SAATHI_API_AUTH_TOKEN` is injected server-side into the frontend proxy and backend; it is not a hosted AI key and is not exposed as a `NEXT_PUBLIC_*` variable. The Compose frontend explicitly uses the bounded in-memory limiter only with `APP_ENV=development`; production remains fail-closed on the shared limiter. The first run downloads several gigabytes and needs sufficient disk space and RAM; do not use this mode on a low-memory host. The Ollama port is not published to the host by this Compose override. If model pulling fails, Compose does not start the backend in this full-local mode rather than silently using a hosted provider. With `DEMO_MODE=false`, weather needs internet and the configured public source; mandi data is unavailable unless a valid approved data.gov.in key is configured, and the app must not fabricate a price.
 
 For a host-installed Ollama instance instead, run `ollama pull qwen2.5:7b`, set `LLM_PROVIDER=ollama` and `OLLAMA_BASE_URL` to the host service address appropriate for your environment. The model's upstream variant terms and hardware fit must be reviewed before redistribution or deployment.
 

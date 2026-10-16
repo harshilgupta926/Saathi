@@ -61,7 +61,7 @@ Frontend: `cd frontend && npm install && npm run dev`
 
 Backend: `cd backend && python -m venv .venv && pip install -r requirements.txt && pytest -q && uvicorn app.main:app --reload`
 
-Fast demo stack: `docker compose up --build`. Full local AI stack (Ollama model pull, no hosted AI key): `docker compose -f docker-compose.yml -f docker-compose.local-ai.yml up --build`. See `docs/LOCAL_DEMO.md` for setup and resource requirements.
+Fast demo stack: `docker compose up --build`. Full local AI stack (Ollama model pull, no hosted AI key) requires a random internal API token first: `export SAATHI_API_AUTH_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"` then `docker compose -f docker-compose.yml -f docker-compose.local-ai.yml up --build`. See `docs/LOCAL_DEMO.md` for setup and resource requirements.
 
 Never commit `.env` files or secrets. Start from the provided `.env.example` files.
 

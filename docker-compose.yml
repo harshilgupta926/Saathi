@@ -15,6 +15,10 @@ services:
       - "8000:8000"
 
   frontend:
+    environment:
+      APP_ENV: development
+      BACKEND_API_URL: http://backend:8000
+      SAATHI_LOCAL_RATE_LIMITER_ENABLED: "true"
     build:
       context: ./frontend
       args:

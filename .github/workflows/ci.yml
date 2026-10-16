@@ -194,6 +194,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Validate base and local-AI Compose configuration
+        env:
+          SAATHI_API_AUTH_TOKEN: ci-local-only-token
         run: docker compose -f docker-compose.yml -f docker-compose.local-ai.yml config --quiet
       - name: Build production API image (retry transient registry failures)
         shell: bash

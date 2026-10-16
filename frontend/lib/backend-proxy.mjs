@@ -135,7 +135,14 @@ export async function proxyRequest(request, segments = [], options = {}) {
   if (verifiedContext && (!/^[0-9a-f-]{36}$/i.test(verifiedContext.identityId) || !/^[0-9a-f-]{36}$/i.test(verifiedContext.householdId))) return errorResponse(403, "invalid_verified_household_context");
   const env = process.env;
   const rateKey = `${method}:${path}:${clientIp(request, env)}`;
-  if (env.NODE_ENV === "production") {
+  // The containerized local demo runs a production Next.js build but is not
+  // a production deployment. Permit the bounded per-process limiter only when
+  // both explicit local-development flags are set. Real deployments must keep
+  // APP_ENV=production; that setting never permits the local limiter.
+  const explicitLocalDevelopment =
+    env.APP_ENV?.trim().toLowerCase() === "development" &&
+    env.SAATHI_LOCAL_RATE_LIMITER_ENABLED === "true";
+  if (env.NODE_ENV === "production" && !explicitLocalDevelopment) {
     if (clientIp(request, env) === "unknown") return errorResponse(503, "trusted_client_ip_not_configured");
     const shared = await allowSharedRequest(rateKey, REQUEST_LIMIT, env, options.rateLimitFetchImpl ?? fetch);
     if (shared.error) return errorResponse(503, shared.error);

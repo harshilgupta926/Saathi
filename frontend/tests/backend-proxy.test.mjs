@@ -11,11 +11,11 @@ function proxyRequest(request, segments, options = {}) {
 
 const originalFetch = globalThis.fetch;
 const originalEnv = { ...process.env };
-function setup() { _resetRateLimitForTests(); process.env.NODE_ENV = "production"; process.env.BACKEND_API_URL = "https://api.example.test"; process.env.SAATHI_API_AUTH_TOKEN = "x".repeat(40); process.env.UPSTASH_REDIS_REST_URL = "https://saathi-test.upstash.io"; process.env.UPSTASH_REDIS_REST_TOKEN = "test-only-token-not-a-secret"; process.env.SAATHI_TRUSTED_CLIENT_IP_HEADER = "x-real-ip"; process.env.SAATHI_HOUSEHOLD_FEATURES_ENABLED = "true"; }
+function setup() { _resetRateLimitForTests(); delete process.env.APP_ENV; delete process.env.SAATHI_LOCAL_RATE_LIMITER_ENABLED; process.env.NODE_ENV = "production"; process.env.BACKEND_API_URL = "https://api.example.test"; process.env.SAATHI_API_AUTH_TOKEN = "x".repeat(40); process.env.UPSTASH_REDIS_REST_URL = "https://saathi-test.upstash.io"; process.env.UPSTASH_REDIS_REST_TOKEN = "test-only-token-not-a-secret"; process.env.SAATHI_TRUSTED_CLIENT_IP_HEADER = "x-real-ip"; process.env.SAATHI_HOUSEHOLD_FEATURES_ENABLED = "true"; }
 function req(path, init = {}, ip = "192.0.2.10") { return new Request("https://web.example.test/backend/" + path, { ...init, headers: { "x-real-ip": ip, ...(init.headers || {}) } }); }
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
-  for (const key of ["NODE_ENV", "BACKEND_API_URL", "SAATHI_API_AUTH_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "SAATHI_TRUSTED_CLIENT_IP_HEADER", "SAATHI_HOUSEHOLD_FEATURES_ENABLED"]) { if (originalEnv[key] === undefined) delete process.env[key]; else process.env[key] = originalEnv[key]; }
+  for (const key of ["NODE_ENV", "APP_ENV", "SAATHI_LOCAL_RATE_LIMITER_ENABLED", "BACKEND_API_URL", "SAATHI_API_AUTH_TOKEN", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "SAATHI_TRUSTED_CLIENT_IP_HEADER", "SAATHI_HOUSEHOLD_FEATURES_ENABLED"]) { if (originalEnv[key] === undefined) delete process.env[key]; else process.env[key] = originalEnv[key]; }
   _resetRateLimitForTests();
 });
 test("rejects unlisted routes without contacting upstream", async () => { setup(); let called = false; globalThis.fetch = async () => { called = true; }; const r = await proxyRequest(req("api/v1/telephony/call", { method: "POST" }), ["api","v1","telephony","call"]); assert.equal(r.status, 404); assert.equal(called, false); });
@@ -316,4 +316,39 @@ test("rejects oversized local OCR bodies before contacting backend", async () =>
   );
   assert.equal(response.status, 413);
   assert.equal(called, false);
+});
+
+
+test("explicit local Compose mode uses bounded local limiter without Upstash", async () => {
+  setup();
+  process.env.APP_ENV = "development";
+  process.env.SAATHI_LOCAL_RATE_LIMITER_ENABLED = "true";
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  delete process.env.SAATHI_TRUSTED_CLIENT_IP_HEADER;
+  let upstreamCalled = false;
+  globalThis.fetch = async (_url, init) => {
+    upstreamCalled = true;
+    assert.equal(new Headers(init.headers).get("X-Saathi-API-Key"), "x".repeat(40));
+    return Response.json({ reply: "ok" });
+  };
+  const response = await proxyRequest(req("api/v1/agent", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message: "नमस्ते", language: "hi" }),
+  }), ["api", "v1", "agent"]);
+  assert.equal(response.status, 200);
+  assert.equal(upstreamCalled, true);
+});
+
+test("local limiter flag cannot bypass shared rate limiting in production app environment", async () => {
+  setup();
+  process.env.APP_ENV = "production";
+  process.env.SAATHI_LOCAL_RATE_LIMITER_ENABLED = "true";
+  delete process.env.UPSTASH_REDIS_REST_URL;
+  let upstreamCalled = false;
+  globalThis.fetch = async () => { upstreamCalled = true; throw Error("must not fetch"); };
+  const response = await proxyRequest(req("health/ready"), ["health", "ready"]);
+  assert.equal(response.status, 503);
+  assert.equal(upstreamCalled, false);
 });
