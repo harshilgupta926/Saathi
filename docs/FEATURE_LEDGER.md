@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-17 UTC.
 
-- Current main after local-first AI/OCR/speech and farmer-facing OCR UI: `e9438d88198feba9ef62535d160cab2f8ea67bed`.
+- Current main after local-first AI/OCR/speech, farmer-facing OCR UI and isolated membership migration tests: `757cd141a70dfe9bea5f12ecdd169598144b4f90`.
 - Previous baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
@@ -166,3 +166,11 @@ Last verified: 2026-10-17 UTC.
 - `docker-compose.local-ai.yml` provides an optional pinned Ollama runtime, persistent model volume, Qwen2.5 7B pull step, backend internal URL, and startup ordering. The model is several gigabytes; the lightweight demo remains separate. No real model smoke was run in CI.
 - PR #92 merged as `e9438d88198feba9ef62535d160cab2f8ea67bed`; exact-head CI [run #1041](https://github.com/kaustubhdua/Saathi/actions/runs/38970249780) passed all five jobs. The dashboard now exposes local OCR through the bounded same-origin proxy and presents confidence/human-review warnings.
 - Remaining release blockers are unchanged: actual Ollama inference/tool-selection latency, actual Vosk audio benchmark and model installation, real-image OCR accuracy, inactive database restoration/isolated migration tests, identity-to-household and consent/RLS proof, durable reminders/volunteer workflows, live source verification, Exotel callback/sandbox acceptance, mobile/accessibility E2E, staging and production verification.
+
+
+## Isolated household membership migration acceptance — PR #94 (2026-10-17 UTC)
+
+- PR #94 merged as `757cd141a70dfe9bea5f12ecdd169598144b4f90`; exact-head CI [run #1044](https://github.com/kaustubhdua/Saathi/actions/runs/38970743363) passed all six jobs.
+- A disposable PostgreSQL 17 CI job applies the existing namespaced task foundation and the quarantined membership proposal only in an ephemeral database. It verifies idempotent enrollment, PIN conflict rejection, recycled-phone non-adoption, duplicate membership prevention, service-role access and anonymous denial.
+- The membership migration remains in `docs/proposed-migrations/`; no live or shared Supabase project was changed. The isolated test does not reconcile the live migration history or prove the actual Supabase project is active.
+- Remaining database gates: restore/activate the intended isolated project with owner authorization, reconcile migration history, apply approved migrations, verify JWT/session identity and household membership against real Auth, test cross-household isolation/RLS, consent revocation, retention/deletion, backup/restore, and restart-safe reminders.
