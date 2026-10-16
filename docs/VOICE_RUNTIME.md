@@ -12,7 +12,7 @@ The /api/v1/voice/turn endpoint accepts a short browser-recorded audio file and 
 6. escalation metadata
 7. correlation ID
 
-The frontend microphone control uses this endpoint. It is provider-gated: without a configured speech provider the UI reports the provider error instead of simulating a live call.
+The frontend microphone control uses this endpoint. The default backend path is local Vosk Hindi STT plus eSpeak NG TTS, with ffmpeg conversion for WebM/WAV input. It uses no hosted speech credentials and never silently falls back to Sarvam. The Vosk model must be downloaded separately and mounted at `VOSK_MODEL_PATH`; readiness reports speech unavailable until the model and binaries exist. Browser-native speech remains a separate optional browser path and may depend on OS/browser services.
 
 ## Phone voice loop
 
@@ -26,12 +26,15 @@ Do not claim live phone AI until a real Exotel call has completed the complete a
 
 ## Provider configuration
 
-- STT: Sarvam Saaras v4 by default
-- TTS: Sarvam Bulbul v3 by default
+- STT: local Vosk Hindi model by default; optional Sarvam Saaras v4 only when `SPEECH_PROVIDER=sarvam`
+- TTS: local eSpeak NG by default; optional Sarvam Bulbul v3 only when `SPEECH_PROVIDER=sarvam`
 - Hindi code: hi-IN
 - Browser audio: WebM upload
 - Phone audio: raw Linear16 PCM
-- Provider key: server-side only
+- Hosted provider key: server-side only, optional
+- Local model: Vosk Hindi small model, Apache-2.0; model files are operator-installed and not stored in Git
+- Local TTS: eSpeak NG, GPL-3.0 distribution obligations apply
+- Offline acceptance: real audio round trip, latency and Hindi/Hinglish/Haryanvi benchmarks are still required
 
 Sarvam documents linear16 output and 8 kHz telephony sample rates for voice pipelines.
 

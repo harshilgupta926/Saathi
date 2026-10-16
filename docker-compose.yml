@@ -5,6 +5,12 @@ services:
       APP_ENV: development
       CORS_ORIGINS: http://localhost:3000
       DEMO_MODE: "true"
+      SPEECH_PROVIDER: local
+      VOSK_MODEL_PATH: /models/vosk-model-small-hi-0.22
+      FFMPEG_BINARY: ffmpeg
+      ESPEAK_NG_BINARY: espeak-ng
+    volumes:
+      - ${VOSK_MODEL_HOST_PATH:-./models/vosk-model-small-hi-0.22}:/models/vosk-model-small-hi-0.22:ro
     ports:
       - "8000:8000"
 

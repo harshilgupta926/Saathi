@@ -19,7 +19,11 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     openai_api_key: str | None = None
     openai_model: str | None = None
-    speech_provider: str = "sarvam"
+    speech_provider: str = "local"
+    vosk_model_path: str = "/models/vosk-model-small-hi-0.22"
+    ffmpeg_binary: str = "ffmpeg"
+    espeak_ng_binary: str = "espeak-ng"
+    local_speech_timeout_seconds: float = 15.0
     bhashini_user_id: str | None = None
     bhashini_api_key: str | None = None
     bhashini_stt_endpoint: str | None = None

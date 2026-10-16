@@ -151,10 +151,23 @@ def readiness() -> dict[str, object]:
     else:
         reasoning = False
     mandi = bool(settings.mandi_api_key and settings.mandi_resource_id)
-    speech = bool(
-        (settings.bhashini_api_key and settings.bhashini_stt_endpoint and settings.bhashini_tts_endpoint)
-        or settings.sarvam_api_key
-    )
+    speech_provider = str(getattr(settings, "speech_provider", "local")).casefold()
+    if speech_provider == "local":
+        offline_stt = bool(settings.vosk_model_path and os.path.isdir(settings.vosk_model_path) and shutil.which(settings.ffmpeg_binary))
+        offline_tts = bool(shutil.which(settings.espeak_ng_binary))
+        speech = offline_stt and offline_tts
+    elif speech_provider == "sarvam":
+        offline_stt = False
+        offline_tts = False
+        speech = bool(settings.sarvam_api_key)
+    elif speech_provider == "bhashini":
+        offline_stt = False
+        offline_tts = False
+        speech = bool(settings.bhashini_api_key and settings.bhashini_stt_endpoint and settings.bhashini_tts_endpoint)
+    else:
+        offline_stt = False
+        offline_tts = False
+        speech = False
     # A running process is not necessarily usable. Production requires the
     # server-side API token injected by the same-origin frontend proxy.
     auth_required = not (settings.demo_mode and settings.app_env.lower() != "production")
@@ -165,6 +178,7 @@ def readiness() -> dict[str, object]:
         "missing_requirements": missing_requirements,
         "demo_mode": settings.demo_mode,
         "reasoning_provider": reasoning_provider,
+        "speech_provider": speech_provider,
         "provider_contracts": {
             "core_agent": True,
             "telephony": telephony,
@@ -172,6 +186,8 @@ def readiness() -> dict[str, object]:
             "reasoning": reasoning,
             "mandi": mandi,
             "speech": speech,
+            "offline_stt": offline_stt,
+            "offline_tts": offline_tts,
             "weather": True,
             "documents": bool(settings.sarvam_api_key),
             "local_ocr": bool(settings.local_ocr_enabled and shutil.which(settings.local_ocr_binary)),
