@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 const POLICIES = {
   "api/v1/agent": { method: "POST", kind: "json", maxBytes: 64 * 1024, timeoutMs: 12_000 },
   "api/v1/voice/turn": { method: "POST", kind: "multipart", maxBytes: 10 * 1024 * 1024, timeoutMs: 45_000 },
+  "api/v1/documents/ocr": { method: "POST", kind: "multipart", maxBytes: 9 * 1024 * 1024, timeoutMs: 25_000 },
   "api/v1/household/consent": { method: "POST", kind: "consent", maxBytes: 4096, timeoutMs: 8_000 },
   "api/v1/household/tasks": { method: "POST", kind: "task", maxBytes: 8192, timeoutMs: 8_000 },
   "api/v1/household/tasks/status": { method: "POST", kind: "task_status", maxBytes: 4096, timeoutMs: 8_000 },

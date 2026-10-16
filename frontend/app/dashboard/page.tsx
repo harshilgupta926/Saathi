@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import LocalDocumentOCR from "../../components/LocalDocumentOCR";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -13,7 +14,7 @@ import {
 
 type Source = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
 type Evidence = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
-type ReadyCapabilities = { core_agent?: boolean; telephony?: boolean; telephony_realtime?: boolean; reasoning?: boolean; mandi?: boolean; speech?: boolean; weather?: boolean; documents?: boolean };
+type ReadyCapabilities = { core_agent?: boolean; telephony?: boolean; telephony_realtime?: boolean; reasoning?: boolean; mandi?: boolean; speech?: boolean; weather?: boolean; documents?: boolean; local_ocr?: boolean };
 type ConsentSnapshot = { memory: { granted: boolean; recorded_at: string | null }; outbound_calls: { granted: boolean; recorded_at: string | null } };
 type HouseholdTask = { task_id: string; title: string; status: "pending" | "completed" | "cancelled" | "escalated"; missing_items: string[]; scheduled_callback: string | null };
 type HouseholdMemory = { memory_id: string; memory_type: string; key_name: string; value_text: string; source: "user_confirmed" | string; updated_at: string | null; expires_at: string | null };
@@ -639,6 +640,8 @@ export default function Dashboard() {
             </div>
           </article>
         </section>
+
+        <LocalDocumentOCR available={capabilities.local_ocr === true} />
 
         <section className="consent-card" aria-labelledby="consent-title">
           <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD CONSENT</span><h3 id="consent-title">You stay in control.</h3></div><ShieldCheck size={18} /></div>

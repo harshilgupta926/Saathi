@@ -277,3 +277,43 @@ test("household routes are disabled unless an operator explicitly enables them",
   assert.equal((await response.json()).detail, "household_features_disabled");
   assert.equal(called, false);
 });
+
+
+test("forwards bounded local OCR multipart requests through the allowlisted proxy", async () => {
+  setup();
+  let upstreamUrl;
+  let upstreamInit;
+  globalThis.fetch = async (url, init) => {
+    upstreamUrl = String(url);
+    upstreamInit = init;
+    return Response.json({ text: "Kisan Card", network_used: false });
+  };
+  const form = new FormData();
+  form.append("file", new Blob([Uint8Array.of(0x89, 0x50, 0x4e, 0x47)], { type: "image/png" }), "card.png");
+  form.append("language", "hin+eng");
+  const response = await proxyRequest(req("api/v1/documents/ocr", { method: "POST", body: form }), ["api", "v1", "documents", "ocr"]);
+  assert.equal(response.status, 200);
+  assert.equal(upstreamUrl.endsWith("/api/v1/documents/ocr"), true);
+  const headers = new Headers(upstreamInit.headers);
+  assert.equal(headers.get("content-type").startsWith("multipart/form-data; boundary="), true);
+  assert.equal(headers.get("X-Saathi-API-Key"), "x".repeat(40));
+  assert.equal(Buffer.isBuffer(upstreamInit.body), true);
+  assert.equal(upstreamInit.body.toString("latin1").includes('name="language"'), true);
+  assert.equal(upstreamInit.body.toString("latin1").includes("hin+eng"), true);
+});
+
+test("rejects oversized local OCR bodies before contacting backend", async () => {
+  setup();
+  let called = false;
+  globalThis.fetch = async () => { called = true; throw Error("must not fetch"); };
+  const response = await proxyRequest(
+    req("api/v1/documents/ocr", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=abc", "content-length": String(10 * 1024 * 1024) },
+      body: "--abc--",
+    }),
+    ["api", "v1", "documents", "ocr"],
+  );
+  assert.equal(response.status, 413);
+  assert.equal(called, false);
+});
