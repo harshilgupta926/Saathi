@@ -192,11 +192,12 @@ class Orchestrator:
                         tool_name=self._tool_name("human", "request_human"),
                     )
                 if selected and selected.name == "get_weather" and intent == "farming" and context.location is not None:
-                    args = selected.arguments
-                    latitude = float(args.get("latitude", context.location.latitude))
-                    longitude = float(args.get("longitude", context.location.longitude))
+                    # Model arguments must never override the user's trusted location context.
+                    # The model selects a capability; the server supplies factual coordinates.
+                    latitude = float(context.location.latitude)
+                    longitude = float(context.location.longitude)
                     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
-                        raise ValueError("reasoning_provider_invalid_location")
+                        raise ValueError("context_location_invalid")
                     result = await self.weather.forecast(latitude=latitude, longitude=longitude)
                     if result.ok:
                         data = result.data
@@ -208,11 +209,13 @@ class Orchestrator:
                             tool_name="get_weather",
                         )
                 if selected and selected.name == "get_mandi_price" and intent == "farming" and self.mandi is not None:
-                    args = selected.arguments
-                    commodity = str(args.get("commodity") or "").strip()
-                    state = str(args.get("state") or "").strip()
-                    district = str(args.get("district") or "").strip() or None
-                    if commodity and state:
+                    # The model may select a data tool, but user entities come only
+                    # from deterministic extraction—not model-generated geography/crops.
+                    entities = extract_farming_entities(message)
+                    commodity = entities.commodity
+                    state = entities.state
+                    district = entities.district or entities.market
+                    if commodity and state and district:
                         result = await self.mandi.price(commodity=commodity, state=state, district=district)
                         if result.ok:
                             data = result.data
