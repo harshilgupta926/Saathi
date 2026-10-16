@@ -143,3 +143,21 @@ def test_verified_household_context_requires_both_valid_uuids(monkeypatch):
     with pytest.raises(HTTPException) as malformed_identity:
         main._authorize_household_context(None, household_id, "not-a-user-id")
     assert malformed_identity.value.status_code == 403
+
+
+def test_readiness_reports_local_ollama_configuration_without_hosted_key(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "app_env", "development")
+    monkeypatch.setattr(main.settings, "llm_provider", "ollama")
+    monkeypatch.setattr(main.settings, "llm_model", "qwen2.5:7b")
+    monkeypatch.setattr(main.settings, "ollama_base_url", "http://127.0.0.1:11434")
+    monkeypatch.setattr(main.settings, "gemini_api_key", None)
+    monkeypatch.setattr(main.settings, "openai_api_key", None)
+
+    response = TestClient(app).get("/health/ready")
+    body = response.json()
+    assert body["reasoning_provider"] == "ollama"
+    assert body["provider_contracts"]["reasoning"] is True
+    # This is configuration evidence only; readiness does not claim the model is reachable.

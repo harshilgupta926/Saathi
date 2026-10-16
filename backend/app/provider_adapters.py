@@ -399,3 +399,49 @@ class SarvamRealtimeTTSProvider:
                     raise RuntimeError("sarvam_tts_stream_error")
         finally:
             await ws.close()
+
+
+class OllamaToolRouter:
+    """Local, API-key-free tool selection using Ollama's /api/chat endpoint."""
+
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "qwen2.5:3b", timeout_seconds: float = 20.0) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout_seconds = max(1.0, min(float(timeout_seconds), 60.0))
+
+    async def choose(self, message: str):
+        tools = [
+            {"type": "function", "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            }}
+            for tool in GeminiToolRouter.TOOLS
+        ]
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            response = await client.post(
+                f"{self.base_url}/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": "Choose at most one listed tool only when appropriate. Never answer factual questions yourself. If uncertain, return no tool call."},
+                        {"role": "user", "content": message[:4000]},
+                    ],
+                    "tools": tools,
+                    "stream": False,
+                    "options": {"temperature": 0},
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+        calls = (payload.get("message") or {}).get("tool_calls") or []
+        if not calls:
+            return None
+        function = calls[0].get("function") or {}
+        name = function.get("name")
+        if name not in {tool["name"] for tool in GeminiToolRouter.TOOLS}:
+            return None
+        arguments = function.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return None
+        return GeminiToolCall(name=name, arguments=arguments, call_id="ollama-local")

@@ -5,10 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from .config import get_settings
 from .escalation import EscalationPolicy, EscalationReason
 from .http_tools import DataGovMandiTool, OpenMeteoWeatherTool
-from .provider_adapters import GeminiToolRouter
+from .provider_adapters import GeminiToolRouter, OllamaToolRouter
 from .intent import classify_intent, extract_farming_entities
 from .provenance import SourceRecord, ToolResult
 from .schemas import Intent, LocationContext
@@ -123,7 +125,21 @@ class Orchestrator:
             )
         self.escalation = EscalationPolicy()
         self.scheme = PMKisanSchemeTool()
-        self.reasoning_router = GeminiToolRouter(settings.gemini_api_key, settings.llm_model) if settings.gemini_api_key and not settings.demo_mode else None
+        if settings.demo_mode:
+            # Keep demo-mode CI and synthetic-data runs deterministic and network-free.
+            self.reasoning_router = None
+        elif getattr(settings, "llm_provider", "gemini").casefold() == "ollama":
+            self.reasoning_router = OllamaToolRouter(
+                base_url=getattr(settings, "ollama_base_url", "http://127.0.0.1:11434"),
+                model=getattr(settings, "llm_model", "qwen2.5:3b"),
+                timeout_seconds=getattr(settings, "ollama_timeout_seconds", 20.0),
+            )
+        elif getattr(settings, "llm_provider", "gemini").casefold() == "gemini" and settings.gemini_api_key:
+            self.reasoning_router = GeminiToolRouter(settings.gemini_api_key, settings.llm_model)
+        else:
+            # Unknown or unconfigured providers disable optional reasoning; deterministic
+            # intent and tool policy remain the source of truth.
+            self.reasoning_router = None
 
     def _tool_name(self, intent: Intent, tool_name: str) -> str:
         if not ToolPolicy.permits(intent, tool_name):
@@ -209,7 +225,7 @@ class Orchestrator:
                                 confidence=0.9,
                                 tool_name="get_mandi_price",
                             )
-            except (ValueError, TypeError, RuntimeError):
+            except (ValueError, TypeError, RuntimeError, httpx.HTTPError):
                 pass
 
         if intent == "human":

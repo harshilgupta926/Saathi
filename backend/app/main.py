@@ -1,8 +1,10 @@
+import asyncio
 from base64 import b64encode
 from datetime import datetime, timezone
 from hmac import compare_digest
 from ipaddress import ip_address
 import os
+import shutil
 from urllib.parse import urlsplit
 from time import perf_counter
 from uuid import UUID
@@ -25,6 +27,7 @@ from .supabase_store import record_conversation_metadata
 from .domain import Consent, ConsentType, Task, TaskStatus
 from .supabase_repositories import SupabaseCallRepository, SupabaseConsentRepository, SupabaseMemoryRepository, SupabaseRepositoryError, SupabaseTaskRepository
 from .scheme_catalog import get_scheme, list_schemes
+from .local_ocr import LocalOCRError, extract_local_ocr
 
 
 settings = get_settings()
@@ -78,6 +81,43 @@ def health() -> dict[str, str | bool]:
     return {"status": "ok", "service": "saathi-api", "version": app.version, "demo_mode": settings.demo_mode}
 
 
+
+@app.post("/api/v1/documents/ocr")
+async def local_document_ocr(
+    request: Request,
+    file: UploadFile = File(...),
+    language: str = Form("hin+eng"),
+    x_saathi_api_key: str | None = Header(default=None, alias="X-Saathi-API-Key"),
+) -> dict[str, object]:
+    """Extract text from a bounded image using local Tesseract; never stores or uploads it."""
+    _authorize_api_request(x_saathi_api_key)
+    if not settings.local_ocr_enabled:
+        raise HTTPException(status_code=503, detail="local_ocr_disabled")
+    client_key = request.client.host if request.client else "unknown"
+    if not limiter.allow(f"ocr:{client_key}"):
+        raise HTTPException(status_code=429, detail="rate_limited")
+    max_bytes = max(1, min(int(settings.local_ocr_max_bytes), 8 * 1024 * 1024))
+    content = await file.read(max_bytes + 1)
+    await file.close()
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail="document_too_large")
+    try:
+        return await asyncio.to_thread(
+            extract_local_ocr,
+            content,
+            content_type=file.content_type or "",
+            language=language,
+            timeout_seconds=settings.local_ocr_timeout_seconds,
+            max_bytes=max_bytes,
+            binary=settings.local_ocr_binary,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LocalOCRError as exc:
+        status_code = 503 if str(exc) == "local_ocr_engine_unavailable" else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
 @app.get("/health/live")
 def liveness() -> dict[str, str]:
     return {"status": "alive"}
@@ -100,7 +140,16 @@ def readiness() -> dict[str, object]:
         and getattr(settings, "telephony_callback_url", None)
         and getattr(settings, "telephony_callback_signature_verified", False)
     )
-    reasoning = bool(getattr(settings, "gemini_api_key", None) or getattr(settings, "openai_api_key", None))
+    reasoning_provider = str(getattr(settings, "llm_provider", "gemini")).casefold()
+    if reasoning_provider == "ollama":
+        # This reports local configuration, not proof that the model is downloaded or reachable.
+        reasoning = bool(getattr(settings, "ollama_base_url", None) and getattr(settings, "llm_model", None))
+    elif reasoning_provider == "gemini":
+        reasoning = bool(getattr(settings, "gemini_api_key", None))
+    elif reasoning_provider == "openai":
+        reasoning = bool(getattr(settings, "openai_api_key", None))
+    else:
+        reasoning = False
     mandi = bool(settings.mandi_api_key and settings.mandi_resource_id)
     speech = bool(
         (settings.bhashini_api_key and settings.bhashini_stt_endpoint and settings.bhashini_tts_endpoint)
@@ -115,6 +164,7 @@ def readiness() -> dict[str, object]:
         "status": "not_ready" if missing_requirements else "ready",
         "missing_requirements": missing_requirements,
         "demo_mode": settings.demo_mode,
+        "reasoning_provider": reasoning_provider,
         "provider_contracts": {
             "core_agent": True,
             "telephony": telephony,
@@ -124,6 +174,7 @@ def readiness() -> dict[str, object]:
             "speech": speech,
             "weather": True,
             "documents": bool(settings.sarvam_api_key),
+            "local_ocr": bool(settings.local_ocr_enabled and shutil.which(settings.local_ocr_binary)),
             "api_operator_auth": api_auth_configured,
             "telephony_stream_auth": bool(settings.telephony_stream_token),
         },
