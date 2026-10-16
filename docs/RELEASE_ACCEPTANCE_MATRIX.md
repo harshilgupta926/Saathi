@@ -6,7 +6,7 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 
 ## Current baseline
 
-- Current main after PRs #88/#89/#91/#92/#94: `757cd141a70dfe9bea5f12ecdd169598144b4f90`.
+- Current main after PRs #88/#89/#91/#92/#94: `fea0ebce9fe849d7cd9aa2bb71ad582c0535c223`.
 - PR #88 exact-head CI #1029 and PR #89 exact-head CI #1034 each passed all five jobs; this is code/build evidence, not live model/provider acceptance.
 - PR #59 adds production fail-closed behavior for unverified household identifiers; CI run #772 is pending at the time this document was authored.
 - PR #58 remains draft because other environments' migration histories are not verified.
@@ -113,3 +113,12 @@ The demo telephony fail-closed change is committed on `fix/dashboard-fail-closed
 - Local Vosk Hindi STT and eSpeak NG TTS code is present, but the Vosk model is an operator-installed artifact. No representative Hindi/Hinglish/Haryanvi audio benchmark is claimed.
 - Unresolved release gates remain: actual Ollama tool selection and p50/p95 latency; OCR accuracy on representative images; active isolated database and migration reconciliation; verified identity, consent and cross-household RLS tests; live weather/mandi provenance; durable reminder/volunteer delivery; Exotel sandbox/callback authentication; browser/mobile accessibility and staging/deployment verification.
 - Do not enable household features, place real calls, or deploy to production as a result of these CI passes. Follow the existing migration, telephony and 2026-10-24 deployment restrictions.
+
+
+## Local Compose runtime correction — PR #100 (2026-10-17)
+
+- PR #100 merged as `fea0ebce9fe849d7cd9aa2bb71ad582c0535c223`; exact-head Actions run [#1054](https://github.com/kaustubhdua/Saathi/actions/runs/38972198010) passed all six jobs.
+- Fixed an integration defect: the full local-AI overlay had inherited `DEMO_MODE=true`, so it would not instantiate Ollama. It now explicitly selects `DEMO_MODE=false`, `LLM_PROVIDER=ollama`, `LLM_MODEL=qwen2.5:7b` and waits for the model-pull service.
+- Fixed the Dockerized Next.js proxy's local path: Compose now sets the backend service URL and uses the bounded in-memory limiter only when both `APP_ENV=development` and `SAATHI_LOCAL_RATE_LIMITER_ENABLED=true` are explicitly set. Production configuration must use `APP_ENV=production` and remains fail-closed on the shared limiter.
+- The full local stack requires a random `SAATHI_API_AUTH_TOKEN`, injected server-side into the backend and frontend proxy; it is not an AI-provider key and is not exposed as a public browser variable.
+- **Still unverified:** no real Ollama model inference has been run on target hardware in this environment. The smoke probe from PR #96 must be executed locally; speech model/audio benchmarks, OCR accuracy, live data, active isolated DB, identity/consent/RLS, reminders/volunteer workflows, telephony, accessibility and deployment gates remain open.

@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-17 UTC.
 
-- Current main after local-first AI/OCR/speech, farmer-facing OCR UI and isolated membership migration tests: `757cd141a70dfe9bea5f12ecdd169598144b4f90`.
+- Current main after local-first AI/OCR/speech, farmer-facing OCR UI and isolated membership migration tests: `fea0ebce9fe849d7cd9aa2bb71ad582c0535c223`.
 - Previous baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
@@ -183,3 +183,11 @@ Last verified: 2026-10-17 UTC.
 - Local Vosk Hindi STT + eSpeak NG TTS are configured without silent hosted-provider fallback. The Vosk model is not bundled and must be installed locally; the real audio round trip and language-quality benchmark remain outstanding.
 - PR #96 adds a repeatable real-Ollama smoke command. Its CI pass, if green, only proves the probe's build/test integration; it does not prove the external local model has been run.
 - No household persistence, live-provider, real telephony, or production deployment acceptance is inferred from these changes. Household features remain fail-closed until identity, consent, RLS and cross-household isolation are tested against an authorized isolated database.
+
+
+## Local Compose runtime — PR #100 merged (2026-10-17)
+
+- Exact-head CI [run #1054](https://github.com/kaustubhdua/Saathi/actions/runs/38972198010) passed all six jobs on PR head `a209f484385d7920af452b20154f6c8f8f13bfe0`.
+- The full local-AI overlay now actually sets `DEMO_MODE=false` and `LLM_PROVIDER=ollama` with Qwen2.5 7B. It requires a random internal API token and keeps Ollama's port off the host.
+- Compose's production-built frontend now has a server-side backend URL and an explicit development-only in-memory limiter path. The path requires both `APP_ENV=development` and `SAATHI_LOCAL_RATE_LIMITER_ENABLED=true`; production must use `APP_ENV=production` and the shared limiter.
+- The real-model probe in `backend/scripts/smoke_local_ollama.py` is available, but it has not been run against a real model/hardware in this environment. CI does not substitute for that evidence.
