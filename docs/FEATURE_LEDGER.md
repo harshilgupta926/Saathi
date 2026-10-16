@@ -111,3 +111,13 @@ Last verified: 2026-10-15 UTC (2026-10-16 IST)
 - Added `frontend/tests/ui-polish-contract.test.mjs` to guard keyboard focus, reduced motion, mobile control affordances and existing response/provenance states.
 - Verification status: tests and code changes are committed to a candidate branch but could not be executed in a local checkout in this environment. Exact-head GitHub Actions, keyboard/screen-reader/mobile visual E2E remain required before merge.
 - Not changed: auth/schema state, shared Supabase data, production deployment, API/provider credentials, or telephony configuration. The PR #68 household feature and all live provider proofs remain separate release gates.
+
+
+## Engineering sprint — webhook idempotency race hardening (2026-10-17 UTC)
+
+- Candidate branch: `fix/webhook-idempotency-hardening-2026-10-17`.
+- In-memory event stores now normalize event IDs consistently and reject blank IDs rather than recording an empty key.
+- A whitespace-only provider event ID now falls back to a SHA-256 digest of the raw request body, preventing a blank provider field from collapsing distinct events onto the same empty key.
+- The process-local idempotency ledger now serializes its check-and-insert operation; concurrent duplicate callbacks in the same process should be accepted exactly once.
+- Added concurrent regression tests (64 duplicate calls across 16 workers) for both in-memory ledgers, plus blank-ID and whitespace-provider-ID tests.
+- These are process-local protections only. Durable cross-worker/restart idempotency still depends on the configured Supabase RPC; no database was activated or modified. CI is required on the exact candidate commit before acceptance. Reminder dispatch, OCR provider round trips, volunteer delivery, live language quality and external provider responses remain separate gates.

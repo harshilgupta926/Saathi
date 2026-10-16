@@ -1,3 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
 from app.webhook_events import InMemoryWebhookEventStore, derive_event_id
 
 
@@ -7,13 +11,30 @@ def test_event_id_is_deterministic_without_provider_id():
 
 
 def test_provider_event_id_takes_precedence():
-    assert derive_event_id(b"body", "evt-123") == "evt-123"
+    assert derive_event_id(b"body", " evt-123 ") == "evt-123"
+
+
+def test_blank_provider_event_id_falls_back_to_body_digest():
+    assert derive_event_id(b"body", "   ") == derive_event_id(b"body")
 
 
 def test_store_detects_duplicates():
     store = InMemoryWebhookEventStore()
     assert store.seen_or_record("evt-123") is False
-    assert store.seen_or_record("evt-123") is True
+    assert store.seen_or_record(" evt-123 ") is True
+
+
+def test_store_rejects_blank_event_id():
+    with pytest.raises(ValueError, match="webhook_event_id_required"):
+        InMemoryWebhookEventStore().seen_or_record("  ")
+
+
+def test_in_memory_store_accepts_concurrent_event_once():
+    store = InMemoryWebhookEventStore()
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(store.seen_or_record, ["evt-race"] * 64))
+    assert results.count(False) == 1
+    assert results.count(True) == 63
 
 
 import asyncio

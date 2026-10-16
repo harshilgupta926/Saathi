@@ -21,16 +21,20 @@ class InMemoryWebhookEventStore:
         self._lock = Lock()
 
     def seen_or_record(self, event_id: str) -> bool:
+        normalized = event_id.strip()
+        if not normalized:
+            raise ValueError("webhook_event_id_required")
         with self._lock:
-            if event_id in self._events:
+            if normalized in self._events:
                 return True
-            self._events.add(event_id)
+            self._events.add(normalized)
             return False
 
 
 def derive_event_id(raw_body: bytes, provider_event_id: str | None = None) -> str:
-    if provider_event_id:
-        return provider_event_id.strip()[:200]
+    normalized = (provider_event_id or "").strip()
+    if normalized:
+        return normalized[:200]
     return "sha256:" + sha256(raw_body).hexdigest()
 
 
