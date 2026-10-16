@@ -6,7 +6,7 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 
 ## Current baseline
 
-- Current main after PRs #88/#89/#91/#92/#94: `fea0ebce9fe849d7cd9aa2bb71ad582c0535c223`.
+- Current main after PRs #88/#89/#91/#92/#94: `03fa65a62137f4ed1b0a619a07389e4bc9cfaa0e`.
 - PR #88 exact-head CI #1029 and PR #89 exact-head CI #1034 each passed all five jobs; this is code/build evidence, not live model/provider acceptance.
 - PR #59 adds production fail-closed behavior for unverified household identifiers; CI run #772 is pending at the time this document was authored.
 - PR #58 remains draft because other environments' migration histories are not verified.
@@ -122,3 +122,11 @@ The demo telephony fail-closed change is committed on `fix/dashboard-fail-closed
 - Fixed the Dockerized Next.js proxy's local path: Compose now sets the backend service URL and uses the bounded in-memory limiter only when both `APP_ENV=development` and `SAATHI_LOCAL_RATE_LIMITER_ENABLED=true` are explicitly set. Production configuration must use `APP_ENV=production` and remains fail-closed on the shared limiter.
 - The full local stack requires a random `SAATHI_API_AUTH_TOKEN`, injected server-side into the backend and frontend proxy; it is not an AI-provider key and is not exposed as a public browser variable.
 - **Still unverified:** no real Ollama model inference has been run on target hardware in this environment. The smoke probe from PR #96 must be executed locally; speech model/audio benchmarks, OCR accuracy, live data, active isolated DB, identity/consent/RLS, reminders/volunteer workflows, telephony, accessibility and deployment gates remain open.
+
+
+## Readiness and offline OCR smoke — PR #103 (2026-10-17)
+
+- PR #103 merged as `03fa65a62137f4ed1b0a619a07389e4bc9cfaa0e`; exact-head CI [run #1068](https://github.com/kaustubhdua/Saathi/actions/runs/38973476271) passed all six jobs.
+- In non-demo Ollama mode, readiness now probes the local `/api/tags` endpoint with a 1.5-second timeout and reports `not_ready` if the exact configured model is not installed or reachable. Deterministic demo mode reports LLM reasoning as inactive instead of claiming a configured model is being used.
+- Local OCR readiness now requires both Tesseract and its Hindi/English language packs. Both API Dockerfiles run a real offline synthetic-image smoke: expected Hindi tokens `किसान`, `कार्ड` and English tokens `Kisan`, `Card` were recognized; mean reported word confidence was 94.69%; `network_used=false`.
+- This is installation/engine smoke evidence, **not** representative-document accuracy acceptance, a field benchmark, or proof that PDF OCR/document understanding is implemented. Real Ollama inference/tool selection remains unrun on target hardware.
