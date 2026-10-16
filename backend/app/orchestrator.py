@@ -183,7 +183,7 @@ class Orchestrator:
         if self.reasoning_router is not None:
             try:
                 selected = await self.reasoning_router.choose(message)
-                if selected and selected.name == "request_human":
+                if selected and selected.name == "request_human" and intent == "human":
                     return self._outcome(
                         intent="human",
                         reply="ठीक है। मैं आपकी बात volunteer सहायता के लिए भेजने की तैयारी कर रहा हूँ।",
