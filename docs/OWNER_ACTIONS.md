@@ -17,7 +17,8 @@ This is the short list of tasks that require the project owner or access to exte
 |---|---|---|
 | Weather | No key | Test a live location-specific request and verify source, units, and observation/forecast time. |
 | Government mandi prices | `MANDI_API_KEY`, verified `MANDI_RESOURCE_ID` | Obtain/confirm the data.gov.in key and validate commodity, market, district, price unit, and observation date. |
-| Hindi browser voice | `SARVAM_API_KEY` | Create a Sarvam key; keep it server-side; test real microphone audio through transcription, answer generation, and Hindi playback. |
+| Offline Hindi browser voice | No hosted API key; `VOSK_MODEL_PATH` plus local `ffmpeg`/`espeak-ng` binaries | Download the official Apache-2.0 Vosk small Hindi model, mount it at the configured path, and test real microphone audio through transcription, answer generation, and Hindi playback. Hindi/Hinglish/Haryanvi benchmark evidence is still required. |
+| Optional hosted Hindi voice | `SARVAM_API_KEY` | Only if explicitly choosing `SPEECH_PROVIDER=sarvam`; keep it server-side and test a real microphone round trip. Never rely on silent fallback. |
 | LLM reasoning | `GEMINI_API_KEY` (optional) | Create a Gemini key only if the intended path requires model reasoning. Do not make deterministic routing depend on it. |
 | Alternative speech | `BHASHINI_USER_ID`, `BHASHINI_API_KEY`, STT/TTS endpoints (optional) | Configure only if choosing Bhashini instead of Sarvam. |
 | Shared frontend rate limit | Vercel `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and documented trusted-IP-header setting | Create an Upstash Redis database and configure it in Vercel before production traffic. |

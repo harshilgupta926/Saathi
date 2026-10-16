@@ -1,8 +1,9 @@
 # Saathi Release Feature Ledger
 
-Last verified: 2026-10-15 UTC (2026-10-16 IST)
+Last verified: 2026-10-17 UTC.
 
-- Main baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
+- Current main after local-first AI/OCR/speech: `f0e9aeab50a92ee23ef66563589d20faa409315c`.
+- Previous baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
 - Telephony callback lifecycle and live-call safety gate: [PR #61](https://github.com/kaustubhdua/Saathi/pull/61), merged.
@@ -148,3 +149,12 @@ Last verified: 2026-10-15 UTC (2026-10-16 IST)
 - Current-main CI after household-auth merge passed all five jobs on `9d49c9daa66fb2f1b95947105c98d07d44c609be` in [run #998](https://github.com/kaustubhdua/Saathi/actions/runs/38963936286).
 - PR #86 merged the household-auth foundation behind `SAATHI_HOUSEHOLD_FEATURES_ENABLED=false`; do not enable it until durable persistence, consent/revocation, idempotency and two-household isolation are proven.
 - Authenticated Sarvam OCR/STT/TTS, current OGD/AGMARKNET adapter responses and Exotel sandbox callback acceptance remain NOT RUN. No issue is closed on the basis of public documentation or mocked CI.
+
+
+## Merged local-first AI, OCR and speech — PRs #88 and #89 (2026-10-17 UTC)
+
+- PR #88 merged as `d42e5a37451809037a48cbcea3e001b15a786c8a`; exact-head CI [run #1029](https://github.com/kaustubhdua/Saathi/actions/runs/38968079665) passed all five jobs on `d8e69afae5744a06a37db6265478389b91012686`.
+- PR #88 sets local Ollama tool routing as the default, selects the Qwen2.5 7B variant for its upstream Apache-2.0 terms, reports local reasoning configuration honestly, and adds a bounded, authenticated, rate-limited Tesseract image OCR endpoint. OCR supports PNG/JPEG/WebP/TIFF only; PDF processing and real-document accuracy are not accepted.
+- PR #89 merged as `f0e9aeab50a92ee23ef66563589d20faa409315c`; exact-head CI [run #1034](https://github.com/kaustubhdua/Saathi/actions/runs/38969019532) passed all five jobs on `a2bd3c9b4b6b3cfb04f21bd47538e50469c8dbae`. Backend suite: 241 tests passed; Docker build smoke-tested the installed Hindi eSpeak voice.
+- Local Vosk Hindi STT and eSpeak NG TTS are now the default backend speech path; no hosted speech provider is used as a silent fallback. The Apache-2.0 Vosk Hindi model must be installed separately and mounted at `VOSK_MODEL_PATH`; it is not committed to Git.
+- Remaining acceptance gates: real Ollama tool/latency smoke, real Vosk audio round trip, Hindi/Hinglish/Haryanvi quality benchmark, real-image OCR accuracy, offline network-disabled test, active isolated database, identity/consent/RLS, live weather/mandi, durable reminders/volunteer workflows, Exotel sandbox, browser/mobile/accessibility and staging deployment. These PRs do not establish production readiness.
