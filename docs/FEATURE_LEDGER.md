@@ -174,3 +174,12 @@ Last verified: 2026-10-17 UTC.
 - A disposable PostgreSQL 17 CI job applies the existing namespaced task foundation and the quarantined membership proposal only in an ephemeral database. It verifies idempotent enrollment, PIN conflict rejection, recycled-phone non-adoption, duplicate membership prevention, service-role access and anonymous denial.
 - The membership migration remains in `docs/proposed-migrations/`; no live or shared Supabase project was changed. The isolated test does not reconcile the live migration history or prove the actual Supabase project is active.
 - Remaining database gates: restore/activate the intended isolated project with owner authorization, reconcile migration history, apply approved migrations, verify JWT/session identity and household membership against real Auth, test cross-household isolation/RLS, consent revocation, retention/deletion, backup/restore, and restart-safe reminders.
+
+
+## Local reasoning and OCR interface — current acceptance state (2026-10-17)
+
+- The default backend reasoning provider is local Ollama with `qwen2.5:7b`; the optional Compose overlay pins Ollama and downloads the model into a persistent volume. No hosted AI API key is required for this path. Actual inference, model-license review for the exact pulled artifact, target hardware memory, tool-selection accuracy and latency remain to be verified.
+- The dashboard exposes the local Tesseract OCR endpoint through the same-origin proxy. Server-side image signatures, MIME type, language, size, timeout and rate limits are enforced; the UI shows confidence and human-review warnings. Real document accuracy and mobile/browser accessibility are not yet accepted.
+- Local Vosk Hindi STT + eSpeak NG TTS are configured without silent hosted-provider fallback. The Vosk model is not bundled and must be installed locally; the real audio round trip and language-quality benchmark remain outstanding.
+- PR #96 adds a repeatable real-Ollama smoke command. Its CI pass, if green, only proves the probe's build/test integration; it does not prove the external local model has been run.
+- No household persistence, live-provider, real telephony, or production deployment acceptance is inferred from these changes. Household features remain fail-closed until identity, consent, RLS and cross-household isolation are tested against an authorized isolated database.

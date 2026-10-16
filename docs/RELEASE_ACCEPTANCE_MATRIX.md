@@ -102,3 +102,14 @@ The demo telephony fail-closed change is committed on `fix/dashboard-fail-closed
 - CI on the exact candidate head is required before code review/merge. Even green CI does not satisfy the live identity, consent, RLS or cross-household acceptance gates.
 - Membership SQL remains proposed and quarantined. Do not apply migrations to the shared Nihdhoom database or enable household persistence while the dedicated Saathi project is inactive.
 - Reminder delivery and volunteer escalation remain NOT COMPLETE; no production dispatch should be enabled until durable scheduler/queue, atomic idempotency, consent-revocation races, retries and end-to-end delivery are proven.
+
+
+## Local AI and OCR UI evidence refresh — 2026-10-17
+
+- Baseline: `f93ff3bbaea7897eed7575c25db9ddf9877a2b4f` (current main when this note was authored).
+- PR #91 added the optional pinned Ollama Compose overlay; exact-head Actions run [#1038](https://github.com/kaustubhdua/Saathi/actions/runs/38969716005) passed all five jobs. This verifies Compose configuration and build gates, **not** a real local model inference run.
+- PR #92 added the farmer-facing local OCR image upload UI and bounded same-origin proxy; exact-head Actions run [#1041](https://github.com/kaustubhdua/Saathi/actions/runs/38970249780) passed all five jobs. This verifies the UI/proxy contract, **not** real-image OCR accuracy.
+- PR #96 adds an opt-in real Ollama acceptance probe at `backend/scripts/smoke_local_ollama.py`; it must be run on a machine with the model downloaded and Ollama reachable. CI cannot substitute for the real model test.
+- Local Vosk Hindi STT and eSpeak NG TTS code is present, but the Vosk model is an operator-installed artifact. No representative Hindi/Hinglish/Haryanvi audio benchmark is claimed.
+- Unresolved release gates remain: actual Ollama tool selection and p50/p95 latency; OCR accuracy on representative images; active isolated database and migration reconciliation; verified identity, consent and cross-household RLS tests; live weather/mandi provenance; durable reminder/volunteer delivery; Exotel sandbox/callback authentication; browser/mobile accessibility and staging/deployment verification.
+- Do not enable household features, place real calls, or deploy to production as a result of these CI passes. Follow the existing migration, telephony and 2026-10-24 deployment restrictions.
