@@ -131,7 +131,7 @@ class Orchestrator:
         elif getattr(settings, "llm_provider", "gemini").casefold() == "ollama":
             self.reasoning_router = OllamaToolRouter(
                 base_url=getattr(settings, "ollama_base_url", "http://127.0.0.1:11434"),
-                model=getattr(settings, "llm_model", "qwen2.5:3b"),
+                model=getattr(settings, "llm_model", "qwen2.5:7b"),
                 timeout_seconds=getattr(settings, "ollama_timeout_seconds", 20.0),
             )
         elif getattr(settings, "llm_provider", "gemini").casefold() == "gemini" and settings.gemini_api_key:

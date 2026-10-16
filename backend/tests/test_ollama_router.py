@@ -46,7 +46,7 @@ def test_ollama_router_returns_only_declared_tool(monkeypatch):
         }
     }
     monkeypatch.setattr(adapters.httpx, "AsyncClient", FakeClient)
-    router = OllamaToolRouter("http://localhost:11434/", "qwen2.5:3b")
+    router = OllamaToolRouter("http://localhost:11434/", "qwen2.5:7b")
     result = asyncio.run(router.choose("Will it rain tomorrow?"))
     assert result.name == "get_weather"
     assert result.arguments["latitude"] == 28.6
@@ -75,3 +75,9 @@ def test_ollama_router_bounds_timeout_and_normalizes_url():
     router = OllamaToolRouter("http://localhost:11434///", timeout_seconds=999)
     assert router.base_url == "http://localhost:11434"
     assert router.timeout_seconds == 60.0
+
+
+
+def test_ollama_router_default_matches_supported_local_stack_model():
+    router = OllamaToolRouter()
+    assert router.model == "qwen2.5:7b"

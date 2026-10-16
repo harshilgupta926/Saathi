@@ -404,7 +404,7 @@ class SarvamRealtimeTTSProvider:
 class OllamaToolRouter:
     """Local, API-key-free tool selection using Ollama's /api/chat endpoint."""
 
-    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "qwen2.5:3b", timeout_seconds: float = 20.0) -> None:
+    def __init__(self, base_url: str = "http://127.0.0.1:11434", model: str = "qwen2.5:7b", timeout_seconds: float = 20.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = max(1.0, min(float(timeout_seconds), 60.0))
