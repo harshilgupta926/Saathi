@@ -6,7 +6,7 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 
 ## Current baseline
 
-- Current main after PRs #88/#89: `f0e9aeab50a92ee23ef66563589d20faa409315c`.
+- Current main after PRs #88/#89/#91/#92: `e9438d88198feba9ef62535d160cab2f8ea67bed`.
 - PR #88 exact-head CI #1029 and PR #89 exact-head CI #1034 each passed all five jobs; this is code/build evidence, not live model/provider acceptance.
 - PR #59 adds production fail-closed behavior for unverified household identifiers; CI run #772 is pending at the time this document was authored.
 - PR #58 remains draft because other environments' migration histories are not verified.
@@ -26,7 +26,9 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 | 7 | Live weather and mandi results have correct source and observation/retrieval timestamps | NOT VERIFIED | Authorized provider tests; validate units, location matching, freshness and failure cases |
 | 8 | Browser voice completes real STT -> tool -> TTS with measured latency | PARTIAL / LOCAL CODE MERGED | Vosk Hindi + eSpeak NG are the default local providers; mount the Apache-2.0 Vosk Hindi model, then capture real audio round-trip logs and p50/p95 latency across Hindi/Hinglish/Haryanvi |
 | 13 | Default reasoning works without hosted AI keys and follows declared tool policy | CODE + CI; REAL MODEL NOT VERIFIED | Run local Ollama with the pinned Qwen2.5 7B variant; capture tool selection, fallback, latency and hardware measurements |
-| 14 | Local OCR extracts representative Hindi/English documents safely | PARTIAL / LOCAL CODE MERGED | Tesseract endpoint accepts bounded PNG/JPEG/WebP/TIFF images; test real cards/forms, confidence thresholds, OCR accuracy and PDF/document limitations |
+| 14 | Local OCR extracts representative Hindi/English documents safely | PARTIAL / LOCAL CODE + UI MERGED | Dashboard uploads bounded PNG/JPEG/WebP/TIFF images through the same-origin proxy; test real cards/forms, confidence thresholds, OCR accuracy and PDF/document limitations |
+| 15 | Dockerized local reasoning works without hosted AI credentials | CONFIG + CI; REAL MODEL NOT VERIFIED | Compose overlay validates and pins the Ollama image, pulls Qwen2.5 7B and connects backend to internal service; run actual inference/tool-selection and latency test on suitable hardware |
+| 16 | Local OCR UI is accessible and safely proxied | CODE + CI PASSED | PR #92 UI/proxy tests, TypeScript, build and dashboard smoke passed; run browser/mobile accessibility checks and real image accuracy tests |
 | 9 | Outbound phone calls require persisted purpose-specific consent; webhooks update call lifecycle idempotently | PARTIAL / PROVIDER BLOCKED | Demo mode now returns explicit 503 `telephony_unavailable_in_demo_mode` and never emits a synthetic accepted call ID. Production still requires persisted purpose-specific consent, real Exotel sandbox proof, and verified callback authentication. |
 | 10 | Reminder/volunteer workflows persist, dispatch, retry, assign and resolve correctly | NOT COMPLETE | Durable dispatcher, atomic claims, retry/quiet-hour tests and operator queue evidence |
 | 11 | Mobile, keyboard, screen-reader, reduced-motion and WCAG 2.2 AA-oriented checks pass | NOT VERIFIED | Device/browser test results and accessibility audit |
@@ -41,6 +43,8 @@ This is an evidence ledger, not a declaration that release gates have passed. Au
 - CI provider tests are stubs/smoke checks and do not prove live weather, mandi, hosted providers, real local model accuracy or Exotel functionality.
 - PR #88 merged as `d42e5a37451809037a48cbcea3e001b15a786c8a`; exact-head run [#1029](https://github.com/kaustubhdua/Saathi/actions/runs/38968079665) passed all five jobs.
 - PR #89 merged as `f0e9aeab50a92ee23ef66563589d20faa409315c`; exact-head run [#1034](https://github.com/kaustubhdua/Saathi/actions/runs/38969019532) passed all five jobs, including 241 backend tests and a Docker build-time Hindi eSpeak voice smoke test.
+- PR #91 merged as `f9021a1b07010cc58c93a6cd433598d280687c0f`; exact-head run [#1038](https://github.com/kaustubhdua/Saathi/actions/runs/38969716005) passed all five jobs, including Compose configuration validation.
+- PR #92 merged as `e9438d88198feba9ef62535d160cab2f8ea67bed`; exact-head run [#1041](https://github.com/kaustubhdua/Saathi/actions/runs/38970249780) passed all five jobs.
 
 ## Data-safety rules
 

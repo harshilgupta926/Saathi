@@ -2,7 +2,7 @@
 
 Last verified: 2026-10-17 UTC.
 
-- Current main after local-first AI/OCR/speech: `f0e9aeab50a92ee23ef66563589d20faa409315c`.
+- Current main after local-first AI/OCR/speech and farmer-facing OCR UI: `e9438d88198feba9ef62535d160cab2f8ea67bed`.
 - Previous baseline after PR #64: `fb795e62f5dbaaf6d57ef150e2877382c8a32655`.
 - P0/P1 proxy and freshness: [PR #57](https://github.com/kaustubhdua/Saathi/pull/57), merged.
 - Household identity fail-closed guard: [PR #59](https://github.com/kaustubhdua/Saathi/pull/59), merged.
@@ -158,3 +158,11 @@ Last verified: 2026-10-17 UTC.
 - PR #89 merged as `f0e9aeab50a92ee23ef66563589d20faa409315c`; exact-head CI [run #1034](https://github.com/kaustubhdua/Saathi/actions/runs/38969019532) passed all five jobs on `a2bd3c9b4b6b3cfb04f21bd47538e50469c8dbae`. Backend suite: 241 tests passed; Docker build smoke-tested the installed Hindi eSpeak voice.
 - Local Vosk Hindi STT and eSpeak NG TTS are now the default backend speech path; no hosted speech provider is used as a silent fallback. The Apache-2.0 Vosk Hindi model must be installed separately and mounted at `VOSK_MODEL_PATH`; it is not committed to Git.
 - Remaining acceptance gates: real Ollama tool/latency smoke, real Vosk audio round trip, Hindi/Hinglish/Haryanvi quality benchmark, real-image OCR accuracy, offline network-disabled test, active isolated database, identity/consent/RLS, live weather/mandi, durable reminders/volunteer workflows, Exotel sandbox, browser/mobile/accessibility and staging deployment. These PRs do not establish production readiness.
+
+
+## Local AI Compose and farmer-facing OCR UI — PRs #91 and #92 (2026-10-17 UTC)
+
+- PR #91 merged as `f9021a1b07010cc58c93a6cd433598d280687c0f`; exact-head CI [run #1038](https://github.com/kaustubhdua/Saathi/actions/runs/38969716005) passed all five jobs, including Compose configuration validation.
+- `docker-compose.local-ai.yml` provides an optional pinned Ollama runtime, persistent model volume, Qwen2.5 7B pull step, backend internal URL, and startup ordering. The model is several gigabytes; the lightweight demo remains separate. No real model smoke was run in CI.
+- PR #92 merged as `e9438d88198feba9ef62535d160cab2f8ea67bed`; exact-head CI [run #1041](https://github.com/kaustubhdua/Saathi/actions/runs/38970249780) passed all five jobs. The dashboard now exposes local OCR through the bounded same-origin proxy and presents confidence/human-review warnings.
+- Remaining release blockers are unchanged: actual Ollama inference/tool-selection latency, actual Vosk audio benchmark and model installation, real-image OCR accuracy, inactive database restoration/isolated migration tests, identity-to-household and consent/RLS proof, durable reminders/volunteer workflows, live source verification, Exotel callback/sandbox acceptance, mobile/accessibility E2E, staging and production verification.
