@@ -54,6 +54,18 @@ docker compose up --build
 
 Then open `http://localhost:3000/dashboard`.
 
+## Full local reasoning (no hosted AI API key)
+
+The base Compose demo keeps the deterministic demo path lightweight. To run the actual local Ollama model as well, use the override file:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-ai.yml up --build
+```
+
+This starts the pinned Ollama container, pulls `qwen2.5:7b` into the persistent `ollama-data` volume, and points the backend at the internal Ollama service. The first run downloads several gigabytes and needs sufficient disk space and RAM; do not use this mode on a low-memory host. The Ollama port is not published to the host by this Compose override. If model pulling fails, Compose does not start the backend in this full-local mode rather than silently using a hosted provider.
+
+For a host-installed Ollama instance instead, run `ollama pull qwen2.5:7b`, set `LLM_PROVIDER=ollama` and `OLLAMA_BASE_URL` to the host service address appropriate for your environment. The model's upstream variant terms and hardware fit must be reviewed before redistribution or deployment.
+
 ## Moving from demo to live
 
 Set `DEMO_MODE=false` only after the required provider credentials are configured. Follow `docs/DEPLOYMENT.md` and `docs/REAL_PROVIDER_RUNBOOK.md`.

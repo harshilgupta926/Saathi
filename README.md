@@ -61,7 +61,7 @@ Frontend: `cd frontend && npm install && npm run dev`
 
 Backend: `cd backend && python -m venv .venv && pip install -r requirements.txt && pytest -q && uvicorn app.main:app --reload`
 
-Full local stack: `docker compose up --build` (see `docs/LOCAL_DEMO.md`).
+Fast demo stack: `docker compose up --build`. Full local AI stack (Ollama model pull, no hosted AI key): `docker compose -f docker-compose.yml -f docker-compose.local-ai.yml up --build`. See `docs/LOCAL_DEMO.md` for setup and resource requirements.
 
 Never commit `.env` files or secrets. Start from the provided `.env.example` files.
 

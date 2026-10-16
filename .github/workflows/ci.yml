@@ -147,6 +147,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Validate base and local-AI Compose configuration
+        run: docker compose -f docker-compose.yml -f docker-compose.local-ai.yml config --quiet
       - name: Build production API image (retry transient registry failures)
         shell: bash
         run: |

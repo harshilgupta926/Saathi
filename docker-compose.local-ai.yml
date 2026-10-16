@@ -1,0 +1,36 @@
+services:
+  ollama:
+    image: ollama/ollama:0.34.0
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  ollama-init:
+    image: ollama/ollama:0.34.0
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/ollama"]
+    command: ["pull", "qwen2.5:7b"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: "no"
+
+  backend:
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      ollama-init:
+        condition: service_completed_successfully
+
+volumes:
+  ollama-data:
