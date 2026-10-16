@@ -127,3 +127,19 @@ def test_household_context_is_allowed_only_for_local_demo(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         main._authorize_household_context("demo-household")
     assert exc.value.status_code == 403
+
+
+def test_verified_household_context_requires_both_valid_uuids(monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "demo_mode", False)
+    monkeypatch.setattr(main.settings, "app_env", "production")
+    household_id = "22222222-2222-4222-8222-222222222222"
+    identity_id = "11111111-1111-4111-8111-111111111111"
+    assert main._authorize_household_context(None, household_id, identity_id) == household_id
+    with pytest.raises(HTTPException) as missing_identity:
+        main._authorize_household_context(None, household_id, None)
+    assert missing_identity.value.status_code == 403
+    with pytest.raises(HTTPException) as malformed_identity:
+        main._authorize_household_context(None, household_id, "not-a-user-id")
+    assert malformed_identity.value.status_code == 403

@@ -185,6 +185,56 @@ def test_task_repository_retries_idempotent_insert_by_fetching_existing_task(mon
     saved = asyncio.run(SupabaseTaskRepository().create(task))
     assert saved.task_id == task_id
     assert [item[0] for item in calls] == ["POST", "GET"]
+    assert f"household_id=eq.{household_id}" in calls[1][1]
+
+
+def test_task_idempotency_key_is_url_encoded_during_conflict_recovery(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    task_id = "22222222-2222-4222-8222-222222222222"
+    task = Task(household_id=household_id, title="Call back", idempotency_key="unsafe&select=title")
+
+    def respond(method, url, headers, payload):
+        if method == "POST":
+            return Response({"message": "unique conflict"}, status_code=409)
+        assert "idempotency_key=eq.unsafe%26select%3Dtitle" in url
+        assert "idempotency_key=eq.unsafe&select=title" not in url
+        return Response([{
+            "id": task_id,
+            "household_id": household_id,
+            "title": "Call back",
+            "status": "pending",
+            "missing_requirements": [],
+            "scheduled_callback": None,
+        }])
+
+    fake_client(monkeypatch, respond)
+    saved = asyncio.run(SupabaseTaskRepository().create(task))
+    assert saved.task_id == task_id
+
+
+def test_task_idempotency_conflict_cannot_return_another_households_task(monkeypatch):
+    configure(monkeypatch)
+    household_id = "11111111-1111-4111-8111-111111111111"
+    other_household_id = "99999999-9999-4999-8999-999999999999"
+    task = Task(household_id=household_id, title="Call back")
+
+    def respond(method, url, headers, payload):
+        if method == "POST":
+            return Response({"message": "unique conflict"}, status_code=409)
+        assert f"household_id=eq.{household_id}" in url
+        return Response([{
+            "id": "22222222-2222-4222-8222-222222222222",
+            "household_id": other_household_id,
+            "title": "private task from another household",
+            "status": "pending",
+            "missing_requirements": [],
+            "scheduled_callback": None,
+        }])
+
+    fake_client(monkeypatch, respond)
+    with pytest.raises(SupabaseRepositoryError, match="task_household_mismatch"):
+        asyncio.run(SupabaseTaskRepository().create(task))
 
 
 def test_task_repository_scopes_updates_to_household(monkeypatch):

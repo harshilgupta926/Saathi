@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
+from urllib.parse import quote
 
 import httpx
 
@@ -155,6 +156,96 @@ class SupabaseConsentRepository(_SupabaseRepository):
         return consent
 
 
+class SupabaseMemoryRepository(_SupabaseRepository):
+    """Explicit, user-confirmed household memories. Database trigger enforces consent on writes."""
+
+    @staticmethod
+    def _public_memory(row: dict) -> dict[str, object]:
+        return {
+            "memory_id": str(row["id"]),
+            "memory_type": str(row["memory_type"]),
+            "key_name": str(row["key_name"]),
+            "value_text": str(row["value_text"]),
+            "source": str(row.get("source") or "user_confirmed"),
+            "updated_at": row.get("updated_at"),
+            "expires_at": row.get("expires_at"),
+        }
+
+    async def list_for_household(self, *, household_id: str) -> list[dict[str, object]]:
+        household_uuid = self._uuid(household_id)
+        rows = await self._request(
+            "GET",
+            f"saathi_household_memories?household_id=eq.{household_uuid}&select=id,memory_type,key_name,value_text,source,updated_at,expires_at&order=updated_at.desc",
+        )
+        now = datetime.now(timezone.utc)
+        memories = []
+        for row in rows:
+            expires = row.get("expires_at")
+            if expires:
+                try:
+                    if datetime.fromisoformat(str(expires).replace("Z", "+00:00")) <= now:
+                        continue
+                except ValueError as exc:
+                    raise SupabaseRepositoryError("memory_expiry_invalid") from exc
+            memories.append(self._public_memory(row))
+        return memories
+
+    async def save(
+        self,
+        *,
+        household_id: str,
+        memory_type: str,
+        key_name: str,
+        value_text: str,
+    ) -> dict[str, object]:
+        from urllib.parse import quote
+
+        household_uuid = self._uuid(household_id)
+        now = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "household_id": household_uuid,
+            "memory_type": memory_type,
+            "key_name": key_name,
+            "value_text": value_text,
+            "source": "user_confirmed",
+            "updated_at": now,
+            "expires_at": None,
+        }
+        try:
+            rows = await self._request("POST", "saathi_household_memories", payload)
+        except SupabaseRepositoryError as exc:
+            if "http_403" in str(exc):
+                raise SupabaseRepositoryError("household_memory_consent_required") from exc
+            if "http_409" not in str(exc):
+                raise
+            try:
+                rows = await self._request(
+                    "PATCH",
+                    "saathi_household_memories"
+                    f"?household_id=eq.{household_uuid}"
+                    f"&memory_type=eq.{quote(memory_type, safe='')}"
+                    f"&key_name=eq.{quote(key_name, safe='')}"
+                    "&select=id,memory_type,key_name,value_text,source,updated_at,expires_at",
+                    payload,
+                )
+            except SupabaseRepositoryError as update_error:
+                if "http_403" in str(update_error):
+                    raise SupabaseRepositoryError("household_memory_consent_required") from update_error
+                raise
+        if not rows:
+            raise SupabaseRepositoryError("household_memory_save_failed")
+        return self._public_memory(rows[0])
+
+    async def delete(self, *, household_id: str, memory_id: str) -> bool:
+        household_uuid = self._uuid(household_id)
+        memory_uuid = self._uuid(memory_id)
+        rows = await self._request(
+            "DELETE",
+            f"saathi_household_memories?id=eq.{memory_uuid}&household_id=eq.{household_uuid}&select=id",
+        )
+        return bool(rows)
+
+
 class SupabaseTaskRepository(_SupabaseRepository):
     """Persistent task adapter with household-scoped reads and updates."""
 
@@ -177,6 +268,7 @@ class SupabaseTaskRepository(_SupabaseRepository):
     async def create(self, task: Task) -> Task:
         household_uuid = self._uuid(task.household_id)
         idempotency_key = task.idempotency_key
+        encoded_idempotency_key = quote(idempotency_key, safe="")
         payload = {
             "household_id": household_uuid,
             "title": task.title,
@@ -192,11 +284,14 @@ class SupabaseTaskRepository(_SupabaseRepository):
                 raise
             rows = await self._request(
                 "GET",
-                f"saathi_pending_tasks?idempotency_key=eq.{idempotency_key}&select=id,household_id,title,status,missing_requirements,scheduled_callback",
+                f"saathi_pending_tasks?household_id=eq.{household_uuid}&idempotency_key=eq.{encoded_idempotency_key}&select=id,household_id,title,status,missing_requirements,scheduled_callback",
             )
         if not rows:
             raise SupabaseRepositoryError("task_create_failed")
-        return self._to_task(rows[0])
+        task = self._to_task(rows[0])
+        if task.household_id != household_uuid:
+            raise SupabaseRepositoryError("task_household_mismatch")
+        return task
 
     async def list_open(self, *, household_id: str) -> list[Task]:
         household_uuid = self._uuid(household_id)
@@ -204,7 +299,10 @@ class SupabaseTaskRepository(_SupabaseRepository):
             "GET",
             f"saathi_pending_tasks?household_id=eq.{household_uuid}&status=eq.pending&select=id,household_id,title,status,missing_requirements,scheduled_callback&order=created_at.desc",
         )
-        return [self._to_task(row) for row in rows]
+        tasks = [self._to_task(row) for row in rows]
+        if any(task.household_id != household_uuid for task in tasks):
+            raise SupabaseRepositoryError("task_household_mismatch")
+        return tasks
 
     async def set_status(self, *, household_id: str, task_id: str, status: TaskStatus) -> Task:
         household_uuid = self._uuid(household_id)
@@ -216,7 +314,10 @@ class SupabaseTaskRepository(_SupabaseRepository):
         )
         if not rows:
             raise KeyError("task_not_found")
-        return self._to_task(rows[0])
+        task = self._to_task(rows[0])
+        if task.household_id != household_uuid:
+            raise SupabaseRepositoryError("task_household_mismatch")
+        return task
 
 
 class SupabaseCallRepository(_SupabaseRepository):

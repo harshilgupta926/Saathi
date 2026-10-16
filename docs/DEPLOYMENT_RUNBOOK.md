@@ -78,3 +78,11 @@ The frontend lockfile is committed; use `npm ci` for reproducible installs. CI i
 ## Rollback
 
 If smoke tests fail, roll back to the last known-good deployment, verify readiness, and repeat the smoke test. Change one provider/configuration at a time while diagnosing failures.
+
+
+## Household authentication and consent — keep disabled until accepted
+
+- Household OTP/PIN/session routes and memory/task endpoints are candidate code only. Do not enable household persistence or advertise personalisation until the required server-side secrets, active isolated Saathi database, reviewed migrations, authenticated identity-to-household mapping, consent revocation and two-household isolation tests pass.
+- New households must default memory and outbound-call consent to off. PIN/session controls must be rate-limited and server-side secrets must never be exposed through `NEXT_PUBLIC_*` variables.
+- The household membership SQL remains in `docs/proposed-migrations/` and is not approved for application. Do not apply it to the shared Nihdhoom project; first reconcile migration history and use an authorized isolated test database.
+- Reminder delivery, automatic follow-up calls, and volunteer assignment remain disabled until durable scheduling, atomic claims, retries, consent-revocation race tests, idempotency and end-to-end delivery are independently accepted.

@@ -24,8 +24,23 @@ test("dynamic API, voice and answer states are announced", () => {
   assert.match(dashboard, /aria-busy=\{loading\}/);
 });
 
-test("dashboard does not claim consent was collected when it was not", () => {
-  assert.match(dashboard, /Household memory off/);
+test("dashboard distinguishes persisted consent from automatic memory storage", () => {
+  assert.match(dashboard, /Memory consent off/);
+  assert.match(dashboard, /Grant permission for future household-memory storage/);
+  assert.match(dashboard, /The conversation workflow does not yet write memories automatically/);
   assert.doesNotMatch(dashboard, /Consent-led/);
-  assert.match(dashboard, /No consent is being collected or stored here/);
+});
+
+
+test("household task and memory controls have labels and accessible actions", () => {
+  assert.match(dashboard, /label htmlFor="household-task-title"/);
+  assert.match(dashboard, /id="household-task-title"/);
+  assert.match(dashboard, /label htmlFor="memory-type"/);
+  assert.match(dashboard, /label htmlFor="memory-key"/);
+  assert.match(dashboard, /label htmlFor="memory-value"/);
+  assert.match(dashboard, /Mark complete/);
+  assert.match(dashboard, /Cancel task/);
+  assert.match(dashboard, /Delete saved memory/);
+  assert.match(dashboard, /aria-live="polite"/);
+  assert.match(dashboard, /aria-live="assertive"/);
 });

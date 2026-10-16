@@ -1,0 +1,117 @@
+-- PROPOSED ONLY. Do not move into supabase/migrations or apply until
+-- PR #58's legacy migration-history reconciliation is approved across environments.
+-- Phone OTP alone is not household identity: auth_user_id binds the verified
+-- Supabase Auth account and an additional household PIN prevents takeover if a
+-- phone number is recycled.
+CREATE TABLE IF NOT EXISTS public.saathi_household_memberships (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id uuid NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  household_id uuid NOT NULL REFERENCES public.saathi_households(id) ON DELETE CASCADE,
+  verified_phone text NOT NULL CHECK (verified_phone ~ '^\+[1-9][0-9]{7,14}$'),
+  pin_hash text NOT NULL CHECK (pin_hash ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS saathi_household_memberships_household_id_idx
+  ON public.saathi_household_memberships (household_id);
+
+ALTER TABLE public.saathi_household_memberships ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.saathi_household_memberships FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.saathi_household_memberships FROM service_role;
+GRANT SELECT ON TABLE public.saathi_household_memberships TO service_role;
+
+COMMENT ON TABLE public.saathi_household_memberships IS
+  'Maps a verified Supabase Auth user and additional household PIN to one Saathi household; service_role only. A phone number alone must not grant access.';
+COMMENT ON COLUMN public.saathi_household_memberships.pin_hash IS
+  'HMAC-SHA256 using a server-only pepper; the pepper must never be stored in the database or exposed to clients.';
+
+-- Atomic enrollment prevents concurrent first-login requests for the same Auth
+-- identity from creating multiple household rows. A recycled/already-assigned
+-- phone is never used to adopt the existing household; a fresh unlinked
+-- household is created instead. This function is server-only and transactional.
+CREATE OR REPLACE FUNCTION public.saathi_enroll_household(
+  p_auth_user_id uuid,
+  p_verified_phone text,
+  p_pin_hash text
+)
+RETURNS TABLE (id uuid, household_id uuid, pin_hash text, verified_phone text)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $saathi$
+DECLARE
+  existing public.saathi_household_memberships%ROWTYPE;
+  household_uuid uuid;
+  phone_for_household text;
+  enrolled public.saathi_household_memberships%ROWTYPE;
+BEGIN
+  IF p_auth_user_id IS NULL
+     OR p_verified_phone IS NULL
+     OR p_pin_hash IS NULL
+     OR p_verified_phone !~ '^\+[1-9][0-9]{7,14}$'
+     OR p_pin_hash !~ '^[0-9a-f]{64}$'
+  THEN
+    RAISE EXCEPTION 'valid_household_enrollment_input_required'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended(p_auth_user_id::text, 0)
+  );
+
+  SELECT m.* INTO existing
+  FROM public.saathi_household_memberships AS m
+  WHERE m.auth_user_id = p_auth_user_id
+  FOR UPDATE;
+
+  IF FOUND THEN
+    IF existing.pin_hash <> p_pin_hash THEN
+      RAISE EXCEPTION 'household_pin_already_set' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN QUERY
+      SELECT existing.id, existing.household_id, existing.pin_hash, existing.verified_phone;
+    RETURN;
+  END IF;
+
+  phone_for_household := p_verified_phone;
+  IF EXISTS (
+    SELECT 1 FROM public.saathi_households AS h
+    WHERE h.phone_number = p_verified_phone
+  ) THEN
+    phone_for_household := NULL;
+  END IF;
+
+  INSERT INTO public.saathi_households AS h (
+    phone_number, memory_consent, outbound_call_consent
+  )
+  VALUES (phone_for_household, FALSE, FALSE)
+  ON CONFLICT (phone_number) DO NOTHING
+  RETURNING h.id INTO household_uuid;
+
+  IF household_uuid IS NULL THEN
+    INSERT INTO public.saathi_households AS h (
+      phone_number, memory_consent, outbound_call_consent
+    )
+    VALUES (NULL, FALSE, FALSE)
+    RETURNING h.id INTO household_uuid;
+  END IF;
+
+  INSERT INTO public.saathi_household_memberships AS m (
+    auth_user_id, household_id, verified_phone, pin_hash
+  )
+  VALUES (p_auth_user_id, household_uuid, p_verified_phone, p_pin_hash)
+  RETURNING m.* INTO enrolled;
+
+  RETURN QUERY
+    SELECT enrolled.id, enrolled.household_id, enrolled.pin_hash, enrolled.verified_phone;
+END;
+$saathi$;
+
+REVOKE ALL ON FUNCTION public.saathi_enroll_household(uuid, text, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.saathi_enroll_household(uuid, text, text)
+  TO service_role;
+
+COMMENT ON FUNCTION public.saathi_enroll_household(uuid, text, text) IS
+  'Server-only atomic household enrollment. Serializes per Auth user; never adopts a household by phone number. Keep proposed until migration history is reconciled and isolated tests pass.';

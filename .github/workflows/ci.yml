@@ -109,8 +109,37 @@ jobs:
           node-version: "24"
       - working-directory: frontend
         run: npm ci
-      # The current high-severity advisory is in the dev-only Next/ESLint linting chain.
-      # Runtime dependencies are audited strictly; the dev-tool advisory remains visible in npm install output.
+      - name: Report full frontend dependency advisories
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm audit --json > "$RUNNER_TEMP/npm-audit.json" || true
+          node - "$RUNNER_TEMP/npm-audit.json" <<'NODE'
+          const fs = require("node:fs");
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          } catch {
+            console.log("Full frontend audit report unavailable; production-only audit still runs below.");
+            process.exit(0);
+          }
+          const counts = report.metadata?.vulnerabilities ?? {};
+          console.log("Full dependency-tree audit counts:", JSON.stringify(counts));
+          for (const [name, item] of Object.entries(report.vulnerabilities ?? {})) {
+            const advisories = (item.via ?? []).map((via) =>
+              typeof via === "string" ? via : (via.title ?? via.name ?? "advisory")
+            );
+            console.log(JSON.stringify({
+              package: name,
+              severity: item.severity,
+              direct: item.isDirect,
+              range: item.range,
+              fixAvailable: item.fixAvailable,
+              advisories,
+            }));
+          }
+          NODE
+      # Runtime dependencies remain a strict release gate; full-tree advisories above are reported for triage.
       - working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
 

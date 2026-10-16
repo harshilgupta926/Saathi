@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CheckCircle2,
@@ -14,6 +14,9 @@ import {
 type Source = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
 type Evidence = { name: string; url: string; retrieved_at?: string | null; freshness_note?: string | null; freshness_status?: string | null };
 type ReadyCapabilities = { core_agent?: boolean; telephony?: boolean; telephony_realtime?: boolean; reasoning?: boolean; mandi?: boolean; speech?: boolean; weather?: boolean; documents?: boolean };
+type ConsentSnapshot = { memory: { granted: boolean; recorded_at: string | null }; outbound_calls: { granted: boolean; recorded_at: string | null } };
+type HouseholdTask = { task_id: string; title: string; status: "pending" | "completed" | "cancelled" | "escalated"; missing_items: string[]; scheduled_callback: string | null };
+type HouseholdMemory = { memory_id: string; memory_type: string; key_name: string; value_text: string; source: "user_confirmed" | string; updated_at: string | null; expires_at: string | null };
 
 type BrowserSpeechRecognition = {
   lang: string;
@@ -77,6 +80,23 @@ export default function Dashboard() {
   const [apiReady, setApiReady] = useState(false);
   const [capabilities, setCapabilities] = useState<ReadyCapabilities>({});
   const [demoMode, setDemoMode] = useState(true);
+  const [authStatus, setAuthStatus] = useState<{ loading: boolean; configured: boolean; phoneSuffix: string | null; householdReady: boolean }>({ loading: true, configured: false, phoneSuffix: null, householdReady: false });
+  const [consentStatus, setConsentStatus] = useState<ConsentSnapshot | null>(null);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentMessage, setConsentMessage] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const [householdMemories, setHouseholdMemories] = useState<HouseholdMemory[] | null>(null);
+  const [memoryType, setMemoryType] = useState("preference");
+  const [memoryKey, setMemoryKey] = useState("");
+  const [memoryValue, setMemoryValue] = useState("");
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [memoryMessage, setMemoryMessage] = useState<string | null>(null);
+  const [householdTasks, setHouseholdTasks] = useState<HouseholdTask[] | null>(null);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [taskMessage, setTaskMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -95,6 +115,209 @@ export default function Dashboard() {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/auth/session", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        setAuthStatus({ loading: false, configured: body.authConfigured === true, phoneSuffix: body.phoneVerified === true ? body.phoneSuffix : null, householdReady: body.householdContextVerified === true });
+      })
+      .catch(() => setAuthStatus({ loading: false, configured: false, phoneSuffix: null, householdReady: false }));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!authStatus.householdReady) return;
+    const controller = new AbortController();
+    fetch("/backend/api/v1/household/consent", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Consent status is unavailable.");
+        setConsentStatus(body);
+        if (body.memory?.granted !== true) setHouseholdMemories(null);
+        setConsentError(null);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setConsentError(cause instanceof Error ? cause.message : "Consent status is unavailable.");
+      });
+    return () => controller.abort();
+  }, [authStatus.householdReady]);
+
+  useEffect(() => {
+    if (!authStatus.householdReady || consentStatus?.memory.granted !== true) return;
+    const controller = new AbortController();
+    fetch("/backend/api/v1/household/memories", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok || !Array.isArray(body.memories)) throw new Error(body.detail || "Saved memories are unavailable.");
+        setHouseholdMemories(body.memories);
+        setMemoryError(null);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setMemoryError(cause instanceof Error ? cause.message : "Saved memories are unavailable.");
+      });
+    return () => controller.abort();
+  }, [authStatus.householdReady, consentStatus?.memory.granted]);
+
+  useEffect(() => {
+    if (!authStatus.householdReady) return;
+    const controller = new AbortController();
+    fetch("/backend/api/v1/household/tasks", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok || !Array.isArray(body.tasks)) throw new Error(body.detail || "Saved tasks are unavailable.");
+        setHouseholdTasks(body.tasks);
+        setTaskError(null);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setTaskError(cause instanceof Error ? cause.message : "Saved tasks are unavailable.");
+      });
+    return () => controller.abort();
+  }, [authStatus.householdReady]);
+
+  const updateConsent = async (purpose: "memory" | "outbound_calls", granted: boolean) => {
+    setConsentBusy(true);
+    setConsentError(null);
+    setConsentMessage(null);
+    try {
+      const response = await fetch("/backend/api/v1/household/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ purpose, granted }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Consent could not be updated.");
+      const statusResponse = await fetch("/backend/api/v1/household/consent", { cache: "no-store" });
+      const statusBody = await statusResponse.json();
+      if (!statusResponse.ok) throw new Error(statusBody.detail || "Consent status could not be refreshed.");
+      setConsentStatus(statusBody);
+      if (purpose === "memory" && !granted) setHouseholdMemories(null);
+      setConsentMessage(purpose === "memory"
+        ? (granted ? "Household memory consent saved." : "Household memory consent revoked; stored memory is purged by the database guard.")
+        : (granted ? "Outbound-call consent saved. This does not place a call." : "Outbound-call consent revoked."));
+    } catch (cause) {
+      setConsentError(cause instanceof Error ? cause.message : "Consent could not be updated.");
+    } finally {
+      setConsentBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setConsentError(null);
+    try {
+      const response = await fetch("/api/auth/signout", { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Sign out failed.");
+      setAuthStatus((current) => ({ ...current, loading: false, phoneSuffix: null, householdReady: false }));
+      setConsentStatus(null);
+      setConsentMessage(null);
+      setHouseholdTasks(null);
+      setTaskTitle("");
+      setTaskMessage(null);
+      setTaskError(null);
+      setHouseholdMemories(null);
+      setMemoryKey("");
+      setMemoryValue("");
+      setMemoryMessage(null);
+      setMemoryError(null);
+    } catch (cause) {
+      setConsentError(cause instanceof Error ? cause.message : "Sign out could not be completed. Please retry.");
+    }
+  };
+
+  const saveHouseholdMemory = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!authStatus.householdReady || consentStatus?.memory.granted !== true) return;
+    setMemoryBusy(true);
+    setMemoryError(null);
+    setMemoryMessage(null);
+    try {
+      const response = await fetch("/backend/api/v1/household/memories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory_type: memoryType.trim(), key_name: memoryKey.trim(), value_text: memoryValue.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Memory could not be saved.");
+      setHouseholdMemories((current) => [body as HouseholdMemory, ...(current || []).filter((item) => !(item.memory_type === body.memory_type && item.key_name === body.key_name))]);
+      setMemoryKey("");
+      setMemoryValue("");
+      setMemoryMessage("Saved only because you explicitly confirmed it.");
+    } catch (cause) {
+      setMemoryError(cause instanceof Error ? cause.message : "Memory could not be saved.");
+    } finally {
+      setMemoryBusy(false);
+    }
+  };
+
+  const deleteHouseholdMemory = async (memoryId: string) => {
+    setMemoryBusy(true);
+    setMemoryError(null);
+    setMemoryMessage(null);
+    try {
+      const response = await fetch("/backend/api/v1/household/memories/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory_id: memoryId }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Memory could not be deleted.");
+      setHouseholdMemories((current) => (current || []).filter((item) => item.memory_id !== memoryId));
+      setMemoryMessage("Saved memory deleted.");
+    } catch (cause) {
+      setMemoryError(cause instanceof Error ? cause.message : "Memory could not be deleted.");
+    } finally {
+      setMemoryBusy(false);
+    }
+  };
+
+  const createHouseholdTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = taskTitle.trim();
+    if (!title || !authStatus.householdReady) return;
+    setTaskBusy(true);
+    setTaskError(null);
+    setTaskMessage(null);
+    try {
+      const idempotencyKey = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : undefined;
+      const response = await fetch("/backend/api/v1/household/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Task could not be saved.");
+      setHouseholdTasks((current) => [body as HouseholdTask, ...(current || []).filter((item) => item.task_id !== body.task_id)]);
+      setTaskTitle("");
+      setTaskMessage("Task saved. Automatic reminders and callback delivery are not enabled yet.");
+    } catch (cause) {
+      setTaskError(cause instanceof Error ? cause.message : "Task could not be saved.");
+    } finally {
+      setTaskBusy(false);
+    }
+  };
+
+  const updateHouseholdTaskStatus = async (taskId: string, status: "completed" | "cancelled") => {
+    setTaskBusy(true);
+    setTaskError(null);
+    setTaskMessage(null);
+    try {
+      const response = await fetch("/backend/api/v1/household/tasks/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskId, status }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Task status could not be updated.");
+      setHouseholdTasks((current) => (current || []).filter((item) => item.task_id !== taskId));
+      setTaskMessage(status === "completed" ? "Task marked complete." : "Task cancelled.");
+    } catch (cause) {
+      setTaskError(cause instanceof Error ? cause.message : "Task status could not be updated.");
+    } finally {
+      setTaskBusy(false);
+    }
+  };
 
   const trace = useMemo(() => {
     const tool = result?.tool_name || "pending";
@@ -283,8 +506,9 @@ export default function Dashboard() {
           </div>
           <div className="header-badges">
             <span role="status" aria-live="polite"><Zap size={13} /> {apiOnline ? (apiReady ? "API ready" : "API online") : "API offline"}</span>
-            <span><ShieldCheck size={13} /> Household memory off</span>
+            <span><ShieldCheck size={13} /> {consentStatus?.memory.granted ? "Memory consent granted" : "Memory consent off"}</span>
             <span><Languages size={13} /> Hindi-first</span>
+            {authStatus.phoneSuffix ? (authStatus.householdReady ? <button type="button" className="auth-status-link" onClick={signOut}>Household unlocked · ••••{authStatus.phoneSuffix} · Sign out</button> : <><Link href="/login" className="auth-status-link">Verify household PIN · ••••{authStatus.phoneSuffix}</Link><button type="button" className="auth-status-link" onClick={signOut}>Sign out</button></>) : <Link href="/login" className="auth-status-link">{authStatus.loading ? "Checking sign-in…" : authStatus.configured ? "Sign in with phone" : "Phone sign-in not configured"}</Link>}
           </div>
         </header>
 
@@ -417,9 +641,94 @@ export default function Dashboard() {
         </section>
 
         <section className="consent-card" aria-labelledby="consent-title">
-          <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD MEMORY</span><h3 id="consent-title">Remember only with permission.</h3></div><ShieldCheck size={18} /></div>
-          <p className="consent-intro">Saathi separates useful continuity from silent surveillance. Household memory remains a prototype-only capability until server-side consent persistence is enabled.</p>
-          <div className="consent-note"><ShieldCheck size={14} /> Household memory is disabled in this prototype. No consent is being collected or stored here; persistent memory remains unavailable until authenticated identity, server-side consent and deletion workflows are verified.</div>
+          <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD CONSENT</span><h3 id="consent-title">You stay in control.</h3></div><ShieldCheck size={18} /></div>
+          <p className="consent-intro">Consent is separate by purpose. Sign in with a verified phone number to view and change persisted permissions. No permission is enabled by default.</p>
+          {!authStatus.phoneSuffix ? (
+            <div className="consent-note"><ShieldCheck size={14} /> {authStatus.configured ? "Sign in with a verified phone to manage household consent." : "Phone sign-in is not configured in this deployment. Household consent and memory remain unavailable."} {authStatus.configured && <Link href="/login">Sign in with phone</Link>}</div>
+          ) : !authStatus.householdReady ? (
+            <div className="consent-note"><ShieldCheck size={14} /> Verify your separate household PIN before viewing or changing consent. <Link href="/login">Verify household PIN</Link></div>
+          ) : (
+            <div className="consent-actions">
+              <div className="consent-choice">
+                <div><strong>Household memory</strong><p>Grant permission for future household-memory storage. The conversation workflow does not yet write memories automatically; revoking this permission purges any stored memory through the database guard.</p><span className="consent-state" role="status">{consentStatus ? (consentStatus.memory.granted ? "Granted" : "Not granted") : "Loading status…"}</span></div>
+                <div className="consent-buttons"><button type="button" className="voice-button" onClick={() => void updateConsent("memory", true)} disabled={consentBusy || !consentStatus || consentStatus.memory.granted}>Enable memory</button><button type="button" className="voice-button" onClick={() => void updateConsent("memory", false)} disabled={consentBusy || !consentStatus || !consentStatus.memory.granted}>Revoke memory</button></div>
+              </div>
+              <div className="consent-choice">
+                <div><strong>Outbound calls</strong><p>Allow explicitly requested follow-up calls. This permission is separate from memory and does not itself place a call.</p><span className="consent-state" role="status">{consentStatus ? (consentStatus.outbound_calls.granted ? "Granted" : "Not granted") : "Loading status…"}</span></div>
+                <div className="consent-buttons"><button type="button" className="voice-button" onClick={() => void updateConsent("outbound_calls", true)} disabled={consentBusy || !consentStatus || consentStatus.outbound_calls.granted}>Allow calls</button><button type="button" className="voice-button" onClick={() => void updateConsent("outbound_calls", false)} disabled={consentBusy || !consentStatus || !consentStatus.outbound_calls.granted}>Revoke calls</button></div>
+              </div>
+            </div>
+          )}
+          {consentMessage && <p role="status" aria-live="polite">{consentMessage}</p>}
+          {consentError && <p className="voice-error" role="alert" aria-live="assertive">{consentError}</p>}
+        </section>
+
+        <section className="consent-card" aria-labelledby="memories-title">
+          <div className="context-title"><div><span className="panel-kicker">USER-CONTROLLED MEMORY</span><h3 id="memories-title">Choose what Saathi remembers.</h3></div><ShieldCheck size={18} /></div>
+          <p className="consent-intro">Nothing is extracted from conversations automatically. Add only information you explicitly choose to save. The database also checks current memory consent when writing and purges saved memory when consent is revoked.</p>
+          {!authStatus.phoneSuffix ? (
+            <div className="consent-note"><ShieldCheck size={14} /> Sign in with a verified phone and household PIN to manage saved memory. <Link href="/login">Sign in</Link></div>
+          ) : !authStatus.householdReady ? (
+            <div className="consent-note"><ShieldCheck size={14} /> Verify your household PIN before viewing saved memory. <Link href="/login">Verify household PIN</Link></div>
+          ) : consentStatus?.memory.granted !== true ? (
+            <div className="consent-note"><ShieldCheck size={14} /> Memory consent is off. Enable it in the Household Consent section above before saving anything.</div>
+          ) : (
+            <>
+              <form className="memory-form" onSubmit={saveHouseholdMemory}>
+                <div className="memory-form-grid">
+                  <div><label htmlFor="memory-type">Category</label><input id="memory-type" value={memoryType} onChange={(event) => setMemoryType(event.target.value)} maxLength={80} required /></div>
+                  <div><label htmlFor="memory-key">What should be remembered?</label><input id="memory-key" value={memoryKey} onChange={(event) => setMemoryKey(event.target.value)} maxLength={120} placeholder="e.g. preferred crop" required /></div>
+                </div>
+                <label htmlFor="memory-value">Value</label>
+                <textarea id="memory-value" value={memoryValue} onChange={(event) => setMemoryValue(event.target.value)} maxLength={2000} rows={3} placeholder="Write the exact information you want to save" required />
+                <button type="submit" className="run-button" disabled={memoryBusy || !memoryType.trim() || !memoryKey.trim() || !memoryValue.trim()}>{memoryBusy ? "Saving…" : "Save selected memory"}</button>
+              </form>
+              {householdMemories === null ? <p className="consent-intro">Loading saved memory…</p> : householdMemories.length === 0 ? <div className="consent-note">No saved memories yet. Only items you add here are stored.</div> : (
+                <ul className="memory-list">
+                  {householdMemories.map((memory) => (
+                    <li className="memory-row" key={memory.memory_id}>
+                      <div><span className="consent-state">{memory.memory_type}</span><strong>{memory.key_name}</strong><p>{memory.value_text}</p><small>Explicitly saved · {memory.updated_at ? new Date(memory.updated_at).toLocaleString() : "time unavailable"}</small></div>
+                      <button type="button" className="voice-button" disabled={memoryBusy} aria-label={`Delete saved memory ${memory.key_name}`} onClick={() => void deleteHouseholdMemory(memory.memory_id)}>Delete</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {memoryMessage && <p role="status" aria-live="polite">{memoryMessage}</p>}
+          {memoryError && <p className="voice-error" role="alert" aria-live="assertive">{memoryError}</p>}
+        </section>
+
+        <section className="consent-card" aria-labelledby="tasks-title">
+          <div className="context-title"><div><span className="panel-kicker">HOUSEHOLD TASKS</span><h3 id="tasks-title">Keep track of the next step.</h3></div><CheckCircle2 size={18} /></div>
+          <p className="consent-intro">Tasks are saved to your verified household and can be marked complete or cancelled. Scheduled reminders and automatic follow-up delivery are not enabled yet.</p>
+          {!authStatus.phoneSuffix ? (
+            <div className="consent-note"><ShieldCheck size={14} /> {authStatus.configured ? "Sign in with a verified phone to manage household tasks." : "Phone sign-in is not configured in this deployment."} {authStatus.configured && <Link href="/login">Sign in with phone</Link>}</div>
+          ) : !authStatus.householdReady ? (
+            <div className="consent-note"><ShieldCheck size={14} /> Verify your household PIN before viewing or changing tasks. <Link href="/login">Verify household PIN</Link></div>
+          ) : (
+            <>
+              <form className="task-form" onSubmit={createHouseholdTask}>
+                <label htmlFor="household-task-title">New task</label>
+                <div className="task-form-row">
+                  <input id="household-task-title" value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} maxLength={300} placeholder="e.g. Call the agriculture office" required />
+                  <button type="submit" className="run-button" disabled={taskBusy || !taskTitle.trim()}>{taskBusy ? "Saving…" : "Save task"}</button>
+                </div>
+              </form>
+              {householdTasks === null ? <p className="consent-intro">Loading saved tasks…</p> : householdTasks.length === 0 ? <div className="consent-note">No open tasks yet. Add a task above to keep it with this household.</div> : (
+                <ul className="task-list">
+                  {householdTasks.map((task) => (
+                    <li className="task-row" key={task.task_id}>
+                      <div><strong>{task.title}</strong>{task.missing_items.length > 0 && <p>Still needed: {task.missing_items.join(", ")}</p>}</div>
+                      <div className="task-row-actions"><button type="button" className="voice-button" disabled={taskBusy} onClick={() => void updateHouseholdTaskStatus(task.task_id, "completed")}>Mark complete</button><button type="button" className="voice-button" disabled={taskBusy} onClick={() => void updateHouseholdTaskStatus(task.task_id, "cancelled")}>Cancel task</button></div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {taskMessage && <p role="status" aria-live="polite">{taskMessage}</p>}
+          {taskError && <p className="voice-error" role="alert" aria-live="assertive">{taskError}</p>}
         </section>
 
         <section className="fallback-card" aria-labelledby="fallback-title">

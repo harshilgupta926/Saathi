@@ -1,11 +1,10 @@
 from pathlib import Path
 
 
-def test_dashboard_is_explicit_about_prototype_only_memory_consent():
+def test_dashboard_distinguishes_consent_from_automatic_memory_storage():
     source = Path(__file__).parents[2].joinpath("frontend/app/dashboard/page.tsx").read_text(encoding="utf-8")
-    assert "Household memory is disabled in this prototype" in source
-    assert "No consent is being collected or stored here" in source
-    # Do not present an in-memory toggle as if it granted durable consent.
+    assert "Grant permission for future household-memory storage" in source
+    assert "The conversation workflow does not yet write memories automatically" in source
     assert "memoryConsent" not in source
     assert "setMemoryConsent" not in source
     assert "reminderConsent" not in source

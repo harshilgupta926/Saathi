@@ -83,3 +83,11 @@ The demo telephony fail-closed change is committed on `fix/dashboard-fail-closed
 
 - PR #79 merged as `a30e1a9152c10e8219d8f6857d64f65eda5cd654` after exact-head CI [#976](https://github.com/kaustubhdua/Saathi/actions/runs/38819660836) passed all five jobs on the PR head.
 - CI coverage includes voice upload mismatch rejection and codec-qualified WebM handling, plus scheme effective-from metadata and freshness tests. Hosted provider/browser journeys and the deployed SHA remain unverified.
+
+
+## Household identity and consent candidate — not yet accepted
+
+- Candidate branch `reconcile/pr68-current-main-2026-10-17` reapplies the household auth/task/memory API changes on current main after OCR PR #85 merged.
+- CI on the exact candidate head is required before code review/merge. Even green CI does not satisfy the live identity, consent, RLS or cross-household acceptance gates.
+- Membership SQL remains proposed and quarantined. Do not apply migrations to the shared Nihdhoom database or enable household persistence while the dedicated Saathi project is inactive.
+- Reminder delivery and volunteer escalation remain NOT COMPLETE; no production dispatch should be enabled until durable scheduler/queue, atomic idempotency, consent-revocation races, retries and end-to-end delivery are proven.

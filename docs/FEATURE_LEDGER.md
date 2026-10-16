@@ -131,3 +131,12 @@ Last verified: 2026-10-15 UTC (2026-10-16 IST)
 - Callback/reminder-policy regression covers negative attempt counts. This is a pure policy check, not an active scheduler or provider dispatch.
 - Exact-head CI run [#988](https://github.com/kaustubhdua/Saathi/actions/runs/38962129840) passed all five jobs on candidate SHA `0bee9f75fdbcfe4d871e42440c2f6b2c958b5bc3`. The candidate has been re-applied on current main after PR #82 merged; rerun exact-head CI on the refreshed commit before merge.
 - No Sarvam credentials were used, no real OCR document was uploaded, and no outbound call/reminder was dispatched.
+
+
+## Candidate household-auth reconciliation (2026-10-17 UTC)
+
+- Current-main reconciliation branch: `reconcile/pr68-current-main-2026-10-17`; derived from main after OCR PR #85 merged as `216bf9fb119905cf18ff40fc3fe053de46001e31`.
+- Reapplied PR #68's household-auth, consent/task API, server-side session, contract-test and documentation changes onto current main. Three documentation files whose old context no longer matched current main were intentionally reconciled separately rather than overwritten: deployment runbook, this ledger, and release acceptance matrix.
+- The proposed household-membership migration remains quarantined under `docs/proposed-migrations/`. No database migration, provider activation or deployment occurred.
+- This is a candidate reapplication, not a claim that PR #68 is accepted. Exact-head CI, security review, active isolated database, two-household isolation, consent revocation and end-to-end identity acceptance remain required.
+- Reminder delivery and outbound household calls remain disabled; pure policy tests do not prove durable scheduling or delivery.

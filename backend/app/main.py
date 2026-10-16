@@ -1,14 +1,17 @@
 from base64 import b64encode
+from datetime import datetime, timezone
 from hmac import compare_digest
 from ipaddress import ip_address
+import os
 from urllib.parse import urlsplit
 from time import perf_counter
+from uuid import UUID
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .schemas import AgentRequest, CallRequest, ConversationRequest, ConversationResponse, LocationContext, VoiceTurnResponse
+from .schemas import AgentRequest, CallRequest, ConsentUpdateRequest, ConversationRequest, ConversationResponse, HouseholdMemoryDeleteRequest, HouseholdMemoryWriteRequest, HouseholdTaskCreateRequest, HouseholdTaskStatusRequest, LocationContext, VoiceTurnResponse
 from .orchestrator import AgentContext, Orchestrator
 from .rate_limit import InMemoryRateLimiter
 from .telephony import HmacWebhookVerifier
@@ -19,8 +22,8 @@ from .voice import VoiceGateway
 from .voice_bridge import run_exotel_realtime_session, run_exotel_session
 from .webhook_events import InMemoryWebhookEventStore, derive_event_id, record_supabase_webhook_event
 from .supabase_store import record_conversation_metadata
-from .domain import ConsentType
-from .supabase_repositories import SupabaseCallRepository, SupabaseConsentRepository, SupabaseRepositoryError
+from .domain import Consent, ConsentType, Task, TaskStatus
+from .supabase_repositories import SupabaseCallRepository, SupabaseConsentRepository, SupabaseMemoryRepository, SupabaseRepositoryError, SupabaseTaskRepository
 from .scheme_catalog import get_scheme, list_schemes
 
 
@@ -136,10 +139,33 @@ def _authorize_api_request(supplied_key: str | None) -> None:
         raise HTTPException(status_code=401, detail="api_authentication_required")
 
 
-def _authorize_household_context(household_id: str | None) -> None:
-    """Until a verified end-user identity is wired, production cannot trust client household IDs."""
-    if household_id and not (settings.demo_mode and settings.app_env.lower() != "production"):
+
+def _require_household_features_enabled() -> None:
+    enabled = os.getenv("SAATHI_HOUSEHOLD_FEATURES_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes"}:
+        raise HTTPException(status_code=503, detail="household_features_disabled")
+
+
+def _authorize_household_context(
+    client_household_id: str | None,
+    verified_household_id: str | None = None,
+    verified_identity_id: str | None = None,
+) -> str | None:
+    """Trust household context only when the server-side proxy supplies verified identity headers."""
+    if client_household_id:
+        if settings.demo_mode and settings.app_env.lower() != "production":
+            return client_household_id
         raise HTTPException(status_code=403, detail="verified_household_identity_required")
+    if not verified_household_id and not verified_identity_id:
+        return None
+    if not verified_household_id or not verified_identity_id:
+        raise HTTPException(status_code=403, detail="verified_household_identity_required")
+    try:
+        household_uuid = str(UUID(verified_household_id))
+        UUID(verified_identity_id)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(status_code=403, detail="verified_household_identity_required") from exc
+    return household_uuid
 
 
 def _configured_telephony_callback_url() -> str:
@@ -235,20 +261,22 @@ async def conversation(
     payload: ConversationRequest,
     request: Request,
     x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
 ) -> ConversationResponse:
     _authorize_api_request(x_saathi_api_key)
-    _authorize_household_context(payload.household_id)
+    household_id = _authorize_household_context(payload.household_id, x_saathi_verified_household, x_saathi_verified_identity)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(key):
         raise HTTPException(status_code=429, detail="rate_limited")
     started = perf_counter()
     outcome = await orchestrator.handle(
         payload.message,
-        AgentContext(household_id=payload.household_id, language=payload.language, location=payload.location),
+        AgentContext(household_id=household_id, language=payload.language, location=payload.location),
     )
     failed = bool(outcome.result and not outcome.result.ok)
     await record_conversation_metadata(
-        household_id=payload.household_id,
+        household_id=household_id,
         agent_used=outcome.intent,
         tools_called=[outcome.tool_name] if outcome.tool_name else [],
         confidence_score=outcome.confidence,
@@ -277,20 +305,22 @@ async def agent(
     payload: AgentRequest,
     request: Request,
     x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
 ) -> ConversationResponse:
     _authorize_api_request(x_saathi_api_key)
-    _authorize_household_context(payload.household_id)
+    household_id = _authorize_household_context(payload.household_id, x_saathi_verified_household, x_saathi_verified_identity)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"agent:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
     started = perf_counter()
     outcome = await orchestrator.handle(
         payload.message,
-        AgentContext(household_id=payload.household_id, language=payload.language, location=payload.location),
+        AgentContext(household_id=household_id, language=payload.language, location=payload.location),
     )
     failed = bool(outcome.result and not outcome.result.ok)
     await record_conversation_metadata(
-        household_id=payload.household_id,
+        household_id=household_id,
         agent_used=outcome.intent,
         tools_called=[outcome.tool_name] if outcome.tool_name else [],
         confidence_score=outcome.confidence,
@@ -321,12 +351,14 @@ async def voice_turn(
     language: str = Form("hi"),
     household_id: str | None = Form(None),
     x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
     latitude: float | None = Form(None),
     longitude: float | None = Form(None),
     location_label: str | None = Form(None),
 ) -> VoiceTurnResponse:
     _authorize_api_request(x_saathi_api_key)
-    _authorize_household_context(household_id)
+    verified_household_id = _authorize_household_context(household_id, x_saathi_verified_household, x_saathi_verified_identity)
     key = request.client.host if request.client else "unknown"
     if not limiter.allow(f"voice:{key}"):
         raise HTTPException(status_code=429, detail="rate_limited")
@@ -361,7 +393,7 @@ async def voice_turn(
         location = LocationContext(latitude=latitude, longitude=longitude, label=location_label)
     started = perf_counter()
     try:
-        turn = await voice_gateway.handle(raw, language=language, household_id=household_id, location=location)
+        turn = await voice_gateway.handle(raw, language=language, household_id=verified_household_id, location=location)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -386,6 +418,226 @@ async def voice_turn(
         tool_name=turn.outcome.tool_name,
         latency_ms=round((perf_counter() - started) * 1000, 2),
     )
+
+
+@app.get("/api/v1/household/consent")
+async def get_household_consent(
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    repository = SupabaseConsentRepository()
+    try:
+        memory = await repository.get(household_id=household_id, consent_type=ConsentType.MEMORY)
+        outbound = await repository.get(household_id=household_id, consent_type=ConsentType.OUTBOUND_CALLS)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="consent_store_unavailable") from exc
+    return {
+        "memory": {"granted": bool(memory and memory.granted), "recorded_at": memory.recorded_at.isoformat() if memory else None},
+        "outbound_calls": {"granted": bool(outbound and outbound.granted), "recorded_at": outbound.recorded_at.isoformat() if outbound else None},
+    }
+
+
+@app.post("/api/v1/household/consent")
+async def update_household_consent(
+    payload: ConsentUpdateRequest,
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    consent_type = ConsentType.MEMORY if payload.purpose == "memory" else ConsentType.OUTBOUND_CALLS
+    consent = Consent(
+        household_id=household_id,
+        consent_type=consent_type,
+        granted=payload.granted,
+        recorded_at=datetime.now(timezone.utc),
+    )
+    try:
+        saved = await SupabaseConsentRepository().save(consent)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="consent_store_unavailable") from exc
+    return {"purpose": payload.purpose, "granted": saved.granted, "recorded_at": saved.recorded_at.isoformat()}
+
+
+@app.get("/api/v1/household/memories")
+async def list_household_memories(
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    try:
+        consent = await SupabaseConsentRepository().get(household_id=household_id, consent_type=ConsentType.MEMORY)
+        if consent is None or not consent.granted:
+            return {"consent_granted": False, "memories": []}
+        memories = await SupabaseMemoryRepository().list_for_household(household_id=household_id)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="household_memory_unavailable") from exc
+    return {"consent_granted": True, "memories": memories}
+
+
+@app.post("/api/v1/household/memories")
+async def save_household_memory(
+    payload: HouseholdMemoryWriteRequest,
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    memory_type, key_name, value_text = payload.memory_type.strip(), payload.key_name.strip(), payload.value_text.strip()
+    if not memory_type or not key_name or not value_text:
+        raise HTTPException(status_code=422, detail="memory_fields_must_not_be_blank")
+    try:
+        consent = await SupabaseConsentRepository().get(household_id=household_id, consent_type=ConsentType.MEMORY)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="household_memory_consent_unavailable") from exc
+    if consent is None or not consent.granted:
+        raise HTTPException(status_code=403, detail="memory_consent_required")
+    try:
+        memory = await SupabaseMemoryRepository().save(
+            household_id=household_id,
+            memory_type=memory_type,
+            key_name=key_name,
+            value_text=value_text,
+        )
+    except (SupabaseRepositoryError, ValueError) as exc:
+        # The database trigger independently enforces consent while serializing
+        # writes against revocation, so a race cannot bypass the permission.
+        if "household_memory_consent_required" in str(exc):
+            raise HTTPException(status_code=403, detail="memory_consent_required") from exc
+        raise HTTPException(status_code=503, detail="household_memory_save_failed") from exc
+    return memory
+
+
+@app.post("/api/v1/household/memories/delete")
+async def delete_household_memory(
+    payload: HouseholdMemoryDeleteRequest,
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    try:
+        deleted = await SupabaseMemoryRepository().delete(household_id=household_id, memory_id=payload.memory_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid_memory_id") from exc
+    except SupabaseRepositoryError as exc:
+        raise HTTPException(status_code=503, detail="household_memory_delete_failed") from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="household_memory_not_found")
+    return {"memory_id": payload.memory_id, "deleted": True}
+
+
+@app.get("/api/v1/household/tasks")
+async def list_household_tasks(
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    try:
+        tasks = await SupabaseTaskRepository().list_open(household_id=household_id)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="household_tasks_unavailable") from exc
+    return {"tasks": [_task_response(task) for task in tasks]}
+
+
+@app.post("/api/v1/household/tasks")
+async def create_household_task(
+    payload: HouseholdTaskCreateRequest,
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="task_title_required")
+    missing_items = [item.strip() for item in payload.missing_items if item.strip()]
+    if len(missing_items) > 20 or any(len(item) > 200 for item in missing_items):
+        raise HTTPException(status_code=422, detail="invalid_task_missing_items")
+    # Scope idempotency to the verified household so a client cannot probe another
+    # household's task by reusing its idempotency key.
+    idempotency_key = f"{household_id}:{payload.idempotency_key}"
+    task = Task(
+        household_id=household_id,
+        title=title,
+        status=TaskStatus.PENDING,
+        missing_items=missing_items,
+        idempotency_key=idempotency_key,
+    )
+    try:
+        saved = await SupabaseTaskRepository().create(task)
+    except (SupabaseRepositoryError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="household_task_save_failed") from exc
+    return _task_response(saved)
+
+
+@app.post("/api/v1/household/tasks/status")
+async def update_household_task_status(
+    payload: HouseholdTaskStatusRequest,
+    x_saathi_api_key: str | None = Header(default=None),
+    x_saathi_verified_household: str | None = Header(default=None),
+    x_saathi_verified_identity: str | None = Header(default=None),
+) -> dict[str, object]:
+    _authorize_api_request(x_saathi_api_key)
+    _require_household_features_enabled()
+    household_id = _authorize_household_context(None, x_saathi_verified_household, x_saathi_verified_identity)
+    if not household_id:
+        raise HTTPException(status_code=401, detail="verified_phone_identity_required")
+    try:
+        saved = await SupabaseTaskRepository().set_status(
+            household_id=household_id,
+            task_id=payload.task_id,
+            status=TaskStatus(payload.status),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="household_task_not_found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="invalid_household_task_id") from exc
+    except SupabaseRepositoryError as exc:
+        raise HTTPException(status_code=503, detail="household_task_update_failed") from exc
+    return _task_response(saved)
+
+
+def _task_response(task: Task) -> dict[str, object]:
+    return {
+        "task_id": task.task_id,
+        "title": task.title,
+        "status": task.status.value,
+        "missing_items": task.missing_items,
+        "scheduled_callback": task.scheduled_callback.isoformat() if task.scheduled_callback else None,
+    }
 
 
 @app.post("/api/v1/calls")
