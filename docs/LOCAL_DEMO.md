@@ -69,3 +69,15 @@ For a host-installed Ollama instance instead, run `ollama pull qwen2.5:7b`, set 
 ## Moving from demo to live
 
 Set `DEMO_MODE=false` only after the required provider credentials are configured. Follow `docs/DEPLOYMENT.md` and `docs/REAL_PROVIDER_RUNBOOK.md`.
+
+
+## Real local-model acceptance probe
+
+After the model has finished downloading and Ollama is reachable, run this opt-in check from the repository root:
+
+```bash
+OLLAMA_BASE_URL=http://127.0.0.1:11434 LLM_MODEL=qwen2.5:7b \
+  python backend/scripts/smoke_local_ollama.py
+```
+
+The probe sends one weather-intent prompt to the actual local model, records selected tool and elapsed milliseconds, and exits non-zero unless the model selects the declared `get_weather` tool. It does not use mocks or fall back to a hosted provider. Repeat on each target hardware class and retain the JSON output with the model tag, machine/RAM details, and p50/p95 results from a larger evaluation set before claiming acceptable latency. A single pass is only a smoke test, not a Hindi/Hinglish/Haryanvi quality benchmark.
