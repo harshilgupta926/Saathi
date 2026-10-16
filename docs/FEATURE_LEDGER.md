@@ -101,3 +101,13 @@ Last verified: 2026-10-15 UTC (2026-10-16 IST)
 - Exact-head CI [run #976](https://github.com/kaustubhdua/Saathi/actions/runs/38819660836) passed all five jobs: backend pytest/API smoke, frontend lockfile install/lint/tests/TypeScript/build/dashboard smoke, Streamlit smoke, dependency audit and Docker build.
 - Merged changes: dashboard bounded timeout/fail-closed errors; demo telephony explicit 503 unavailable instead of synthetic acceptance; voice MIME normalization and WAV/WebM signature validation before provider invocation; explicit scheme effective-from metadata and source-review dates.
 - Main-branch CI run [#979](https://github.com/kaustubhdua/Saathi/actions/runs/38819811688) passed all five jobs on SHA `cbb7a88162964e0f71165dc34829339e3febae05`, including backend tests, frontend lint/tests/TypeScript/build/dashboard smoke, dependency audit, Streamlit smoke and Docker build. This ledger update will trigger a fresh main CI run. Production behavior remains unverified and no deployment occurred.
+
+
+## Engineering sprint — Saathi interface polish (2026-10-16 IST)
+
+- Branch: `feat/saathi-dashboard-ui-polish-2026-10-16`.
+- Added a restrained interaction layer to the established green/cream/saffron design: visible keyboard focus, mobile touch affordances, clearer action feedback, resilient narrow-screen wrapping, and reduced-motion-aware transitions for hover-capable devices.
+- Design references reviewed: [shadcn/ui](https://github.com/shadcn-ui/ui) for composable accessible patterns, [Magic UI](https://github.com/magicuidesign/magicui) for motion inspiration, and [Tremor](https://github.com/tremorlabs/tremor) for information hierarchy. No wholesale dependency or code/license copy was imported.
+- Added `frontend/tests/ui-polish-contract.test.mjs` to guard keyboard focus, reduced motion, mobile control affordances and existing response/provenance states.
+- Verification status: tests and code changes are committed to a candidate branch but could not be executed in a local checkout in this environment. Exact-head GitHub Actions, keyboard/screen-reader/mobile visual E2E remain required before merge.
+- Not changed: auth/schema state, shared Supabase data, production deployment, API/provider credentials, or telephony configuration. The PR #68 household feature and all live provider proofs remain separate release gates.
