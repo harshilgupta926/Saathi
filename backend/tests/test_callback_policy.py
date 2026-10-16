@@ -92,3 +92,16 @@ def test_invalid_timezone_fails_closed():
     )
     assert not decision.allowed
     assert decision.reason == "invalid_timezone_configuration"
+
+
+def test_negative_attempt_count_fails_closed():
+    decision = evaluate_callback_eligibility(
+        consent_granted=True,
+        consent_revoked=False,
+        scheduled_at=datetime(2026, 10, 10, 8, tzinfo=timezone.utc),
+        status="pending",
+        attempt_count=-1,
+        now=datetime(2026, 10, 10, 10, tzinfo=timezone.utc),
+    )
+    assert not decision.allowed
+    assert decision.reason == "callback_attempt_limit_reached"

@@ -72,3 +72,30 @@ def test_extract_requires_object_schema(monkeypatch):
         assert "object schema" in str(exc)
     else:
         raise AssertionError("invalid schema should fail before provider call")
+
+
+def test_job_endpoints_encode_provider_job_id(monkeypatch):
+    FakeClient.calls = []
+    monkeypatch.setattr(document_ai.httpx, "AsyncClient", FakeClient)
+    provider = document_ai.SarvamDocumentAIProvider("key")
+    asyncio.run(provider.status("job/with space"))
+    assert FakeClient.calls[0][1][0].endswith("/doc-ai/v1/job/job%2Fwith%20space/status")
+
+
+def test_provider_non_object_json_is_rejected(monkeypatch):
+    class ListResponse(FakeResponse):
+        def json(self):
+            return ["unexpected", "array"]
+
+    class ListClient(FakeClient):
+        async def get(self, *args, **kwargs):
+            return ListResponse([])
+
+    monkeypatch.setattr(document_ai.httpx, "AsyncClient", ListClient)
+    provider = document_ai.SarvamDocumentAIProvider("key")
+    try:
+        asyncio.run(provider.results("job-1"))
+    except ValueError as exc:
+        assert str(exc) == "document_ai_invalid_response"
+    else:
+        raise AssertionError("non-object provider response must fail closed")

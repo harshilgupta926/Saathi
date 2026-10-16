@@ -121,3 +121,13 @@ Last verified: 2026-10-15 UTC (2026-10-16 IST)
 - The process-local idempotency ledger now serializes its check-and-insert operation; concurrent duplicate callbacks in the same process should be accepted exactly once.
 - Added concurrent regression tests (64 duplicate calls across 16 workers) for both in-memory ledgers, plus blank-ID and whitespace-provider-ID tests.
 - These are process-local protections only. Durable cross-worker/restart idempotency still depends on the configured Supabase RPC; no database was activated or modified. CI is required on the exact candidate commit before acceptance. Reminder dispatch, OCR provider round trips, volunteer delivery, live language quality and external provider responses remain separate gates.
+
+
+## Engineering sprint — OCR response contracts and escalation fail-closed tests (2026-10-17 UTC)
+
+- Candidate branch: `fix/ocr-escalation-current-main-2026-10-17`.
+- Document AI status/results encode job IDs as one URL path segment and reject non-object JSON responses instead of passing malformed provider payloads downstream.
+- Escalation treats non-finite confidence as zero, which safely triggers low-confidence escalation; safety-boundary escalation coverage is included.
+- Callback/reminder-policy regression covers negative attempt counts. This is a pure policy check, not an active scheduler or provider dispatch.
+- Exact-head CI run [#988](https://github.com/kaustubhdua/Saathi/actions/runs/38962129840) passed all five jobs on candidate SHA `0bee9f75fdbcfe4d871e42440c2f6b2c958b5bc3`. The candidate has been re-applied on current main after PR #82 merged; rerun exact-head CI on the refreshed commit before merge.
+- No Sarvam credentials were used, no real OCR document was uploaded, and no outbound call/reminder was dispatched.

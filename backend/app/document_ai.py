@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -28,6 +29,13 @@ class SarvamDocumentAIProvider:
 
     def _headers(self) -> dict[str, str]:
         return {"api-subscription-key": self.api_key}
+
+    @staticmethod
+    def _json_object(response: httpx.Response) -> dict[str, Any]:
+        body = response.json()
+        if not isinstance(body, dict):
+            raise ValueError("document_ai_invalid_response")
+        return body
 
     @staticmethod
     def _job(body: dict[str, Any]) -> DocumentJob:
@@ -59,29 +67,29 @@ class SarvamDocumentAIProvider:
                 data=data,
             )
             response.raise_for_status()
-            return self._job(response.json())
+            return self._job(self._json_object(response))
 
     async def status(self, job_id: str) -> dict[str, Any]:
         if not job_id.strip():
             raise ValueError("document_ai_job_id_required")
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
-                f"{self.base_url}/doc-ai/v1/job/{job_id}/status",
+                f"{self.base_url}/doc-ai/v1/job/{quote(job_id, safe=chr(0))}/status",
                 headers=self._headers(),
             )
             response.raise_for_status()
-            return response.json()
+            return self._json_object(response)
 
     async def results(self, job_id: str) -> dict[str, Any]:
         if not job_id.strip():
             raise ValueError("document_ai_job_id_required")
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
-                f"{self.base_url}/doc-ai/v1/job/{job_id}/results",
+                f"{self.base_url}/doc-ai/v1/job/{quote(job_id, safe=chr(0))}/results",
                 headers=self._headers(),
             )
             response.raise_for_status()
-            return response.json()
+            return self._json_object(response)
 
     async def extract(
         self,

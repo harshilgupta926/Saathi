@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from typing import Literal
 
 EscalationReason = Literal[
@@ -32,6 +33,9 @@ class EscalationPolicy:
         provider_failed: bool = False,
         safety_boundary: bool = False,
     ) -> EscalationDecision:
+        # Invalid provider/model confidence must not accidentally appear safe.
+        if not isfinite(confidence):
+            confidence = 0.0
         confidence = max(0.0, min(1.0, confidence))
         if explicit_human_request:
             return EscalationDecision(True, "explicit_human_request", confidence)

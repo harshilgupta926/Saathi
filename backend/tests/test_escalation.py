@@ -22,3 +22,20 @@ def test_provider_failure_escalates() -> None:
 def test_safe_confident_result_does_not_escalate() -> None:
     decision = EscalationPolicy().evaluate(confidence=0.8)
     assert decision.escalate is False
+
+
+def test_safety_boundary_always_escalates():
+    decision = EscalationPolicy().evaluate(confidence=0.99, safety_boundary=True)
+    assert decision.escalate is True
+    assert decision.reason == "safety_boundary"
+
+
+def test_non_finite_confidence_fails_closed_to_escalation():
+    from math import nan, inf
+
+    policy = EscalationPolicy(minimum_confidence=0.65)
+    for confidence in (nan, inf, -inf):
+        decision = policy.evaluate(confidence=confidence)
+        assert decision.escalate is True
+        assert decision.reason == "low_confidence"
+        assert decision.confidence == 0.0
