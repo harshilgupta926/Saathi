@@ -5,6 +5,9 @@ from hmac import compare_digest
 from ipaddress import ip_address
 import os
 import shutil
+import subprocess
+
+import httpx
 from urllib.parse import urlsplit
 from time import perf_counter
 from uuid import UUID
@@ -128,6 +131,52 @@ def metrics() -> dict[str, object]:
     return metrics_snapshot()
 
 
+def _local_ocr_available(binary: str) -> bool:
+    """Report OCR only when Tesseract and both configured language packs are present."""
+    executable = shutil.which(binary)
+    if not executable:
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "--list-langs"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    languages = {line.strip() for line in (result.stdout or "").splitlines()[1:] if line.strip()}
+    return {"hin", "eng"} <= languages
+
+
+def _ollama_model_available(base_url: str, model: str) -> bool:
+    """Bounded readiness probe: true only when the configured model is actually pulled."""
+    try:
+        normalized_base = (base_url or "").strip().rstrip("/")
+        parsed = urlsplit(normalized_base)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            return False
+        with httpx.Client(timeout=1.5, trust_env=False) as client:
+            response = client.get(f"{normalized_base}/api/tags")
+            response.raise_for_status()
+            payload = response.json()
+        models = payload.get("models", []) if isinstance(payload, dict) else []
+        return any(isinstance(item, dict) and item.get("name") == model for item in models)
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+        return False
+
+
 @app.get("/health/ready")
 def readiness() -> dict[str, object]:
     telephony = bool(
@@ -141,9 +190,14 @@ def readiness() -> dict[str, object]:
         and getattr(settings, "telephony_callback_signature_verified", False)
     )
     reasoning_provider = str(getattr(settings, "llm_provider", "gemini")).casefold()
-    if reasoning_provider == "ollama":
-        # This reports local configuration, not proof that the model is downloaded or reachable.
-        reasoning = bool(getattr(settings, "ollama_base_url", None) and getattr(settings, "llm_model", None))
+    if settings.demo_mode:
+        # Deterministic demo routing does not invoke any LLM, even if a key/model is configured.
+        reasoning = False
+    elif reasoning_provider == "ollama":
+        reasoning = _ollama_model_available(
+            str(getattr(settings, "ollama_base_url", "")),
+            str(getattr(settings, "llm_model", "")),
+        )
     elif reasoning_provider == "gemini":
         reasoning = bool(getattr(settings, "gemini_api_key", None))
     elif reasoning_provider == "openai":
@@ -173,6 +227,8 @@ def readiness() -> dict[str, object]:
     auth_required = not (settings.demo_mode and settings.app_env.lower() != "production")
     api_auth_configured = bool(settings.api_auth_token)
     missing_requirements = ["api_operator_auth"] if auth_required and not api_auth_configured else []
+    if not settings.demo_mode and reasoning_provider == "ollama" and not reasoning:
+        missing_requirements.append("local_reasoning_model")
     return {
         "status": "not_ready" if missing_requirements else "ready",
         "missing_requirements": missing_requirements,
@@ -190,7 +246,7 @@ def readiness() -> dict[str, object]:
             "offline_tts": offline_tts,
             "weather": True,
             "documents": bool(settings.sarvam_api_key),
-            "local_ocr": bool(settings.local_ocr_enabled and shutil.which(settings.local_ocr_binary)),
+            "local_ocr": bool(settings.local_ocr_enabled and _local_ocr_available(settings.local_ocr_binary)),
             "api_operator_auth": api_auth_configured,
             "telephony_stream_auth": bool(settings.telephony_stream_token),
         },

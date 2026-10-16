@@ -83,6 +83,7 @@ def test_readiness_fails_closed_when_production_auth_is_missing(monkeypatch):
     monkeypatch.setattr(main.settings, "demo_mode", False)
     monkeypatch.setattr(main.settings, "app_env", "production")
     monkeypatch.setattr(main.settings, "api_auth_token", None)
+    monkeypatch.setattr(main, "_ollama_model_available", lambda *_args: True)
     response = TestClient(app).get("/health/ready")
     assert response.status_code == 200
     assert response.json()["status"] == "not_ready"
@@ -148,16 +149,17 @@ def test_verified_household_context_requires_both_valid_uuids(monkeypatch):
 def test_readiness_reports_local_ollama_configuration_without_hosted_key(monkeypatch):
     import app.main as main
 
-    monkeypatch.setattr(main.settings, "demo_mode", True)
+    monkeypatch.setattr(main.settings, "demo_mode", False)
     monkeypatch.setattr(main.settings, "app_env", "development")
     monkeypatch.setattr(main.settings, "llm_provider", "ollama")
     monkeypatch.setattr(main.settings, "llm_model", "qwen2.5:7b")
     monkeypatch.setattr(main.settings, "ollama_base_url", "http://127.0.0.1:11434")
     monkeypatch.setattr(main.settings, "gemini_api_key", None)
     monkeypatch.setattr(main.settings, "openai_api_key", None)
+    monkeypatch.setattr(main, "_ollama_model_available", lambda *_args: True)
 
     response = TestClient(app).get("/health/ready")
     body = response.json()
     assert body["reasoning_provider"] == "ollama"
     assert body["provider_contracts"]["reasoning"] is True
-    # This is configuration evidence only; readiness does not claim the model is reachable.
+    # The mocked local model tag check is positive; the separate opt-in smoke tests actual inference.

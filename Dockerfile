@@ -21,6 +21,8 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt
 
 COPY backend/app ./app
+COPY backend/scripts/smoke_local_ocr.py /tmp/smoke_local_ocr.py
+RUN python /tmp/smoke_local_ocr.py
 
 EXPOSE 8000
 

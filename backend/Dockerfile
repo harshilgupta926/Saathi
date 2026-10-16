@@ -19,6 +19,8 @@ RUN command -v ffmpeg >/dev/null && command -v espeak-ng >/dev/null \
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && pip install -r /tmp/requirements.txt
 COPY app ./app
+COPY scripts/smoke_local_ocr.py /tmp/smoke_local_ocr.py
+RUN python /tmp/smoke_local_ocr.py
 
 EXPOSE 8000
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
